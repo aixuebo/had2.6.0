@@ -29,6 +29,8 @@ import org.apache.hadoop.classification.InterfaceStability.Evolving;
 /**
  * This class contains a set of methods to work with services, especially
  * to walk them through their lifecycle.
+ * 该方法是门面方法,属于对服务的抽象,即该方法可以操作任意服务对象
+ * 
  */
 @Public
 @Evolving
@@ -46,6 +48,7 @@ public final class ServiceOperations {
    * The service state is checked <i>before</i> the operation begins.
    * This process is <i>not</i> thread safe.
    * @param service a service or null
+   * 停止一个服务
    */
   public static void stop(Service service) {
     if (service != null) {
@@ -60,6 +63,7 @@ public final class ServiceOperations {
    *
    * @param service a service; may be null
    * @return any exception that was caught; null if none was.
+   * 安静的停止该服务,即停止一个服务,并且有异常的时候将异常日志打印,同时抛异常
    */
   public static Exception stopQuietly(Service service) {
     return stopQuietly(LOG, service);
@@ -74,6 +78,7 @@ public final class ServiceOperations {
    * @param service a service; may be null
    * @return any exception that was caught; null if none was.
    * @see ServiceOperations#stopQuietly(Service)
+   * 安静的停止该服务,即停止一个服务,并且有异常的时候将异常日志打印,同时抛异常
    */
   public static Exception stopQuietly(Log log, Service service) {
     try {
@@ -92,11 +97,13 @@ public final class ServiceOperations {
    * Class to manage a list of {@link ServiceStateChangeListener} instances,
    * including a notification loop that is robust against changes to the list
    * during the notification process.
+   * 每一个服务持有一个该对象,当状态发生变化的时候,通知所有监听该服务的对象,告诉他们我发生变化了
    */
   public static class ServiceListeners {
     /**
      * List of state change listeners; it is final to guarantee
      * that it will never be null.
+     * 当服务更改的时候,通知哪些ServiceStateChangeListener
      */
     private final List<ServiceStateChangeListener> listeners =
       new ArrayList<ServiceStateChangeListener>();
@@ -106,6 +113,7 @@ public final class ServiceOperations {
      * Attempts to re-register a listener that is already registered
      * will be ignored.
      * @param l listener
+     * 添加一个服务更改监听者
      */
     public synchronized void add(ServiceStateChangeListener l) {
       if(!listeners.contains(l)) {
@@ -135,6 +143,7 @@ public final class ServiceOperations {
      * It caches the list of listeners before the notification begins,
      * so additions or removal of listeners will not be visible.
      * @param service the service that has changed state
+     * 如果Service服务状态更改了,通知所有他的监听者
      */
     public void notifyListeners(Service service) {
       //take a very fast snapshot of the callback list

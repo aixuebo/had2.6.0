@@ -25,6 +25,7 @@ import org.apache.hadoop.classification.InterfaceStability.Evolving;
 
 /**
  * This is a state change listener that logs events at INFO level
+ * 当服务的状态变更的时候,向日志系统中记录信息
  */
 @Public
 @Evolving
@@ -54,6 +55,7 @@ public class LoggingStateChangeListener implements ServiceStateChangeListener {
   /**
    * Callback for a state change event: log it
    * @param service the service that has changed.
+   * 当服务状态更改的时候,记录是哪个服务更改到什么状态了
    */
   @Override
   public void stateChanged(Service service) {

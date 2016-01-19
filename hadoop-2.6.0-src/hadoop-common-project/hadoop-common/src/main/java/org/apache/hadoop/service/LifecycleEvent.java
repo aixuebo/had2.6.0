@@ -34,10 +34,12 @@ public class LifecycleEvent implements Serializable {
 
   /**
    * Local time in milliseconds when the event occurred
+   * 当事件发生的时候,本地的时间戳
    */
   public long time;
   /**
    * new state
+   * 被更改成什么新的状态
    */
   public Service.STATE state;
 }

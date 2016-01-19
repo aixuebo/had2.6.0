@@ -29,6 +29,7 @@ import org.apache.hadoop.conf.Configuration;
 
 /**
  * Composition of services.
+ * 组合服务,表示多个服务共同作用
  */
 @Public
 @Evolving
@@ -46,8 +47,10 @@ public class CompositeService extends AbstractService {
    */
   protected static final boolean STOP_ONLY_STARTED_SERVICES = false;
 
+  //存储多个服务
   private final List<Service> serviceList = new ArrayList<Service>();
 
+  //多个服务也要有一个名字
   public CompositeService(String name) {
     super(name);
   }
@@ -56,6 +59,7 @@ public class CompositeService extends AbstractService {
    * Get a cloned list of services
    * @return a list of child services at the time of invocation -
    * added services will not be picked up.
+   * 获取全部服务
    */
   public List<Service> getServices() {
     synchronized (serviceList) {
@@ -67,6 +71,7 @@ public class CompositeService extends AbstractService {
    * Add the passed {@link Service} to the list of services managed by this
    * {@link CompositeService}
    * @param service the {@link Service} to be added
+   * 添加一个服务
    */
   protected void addService(Service service) {
     if (LOG.isDebugEnabled()) {
@@ -82,6 +87,7 @@ public class CompositeService extends AbstractService {
    * add it to the list of services managed by this {@link CompositeService}
    * @param object
    * @return true if a service is added, false otherwise.
+   * 如果是Service接口的参数,则添加该服务
    */
   protected boolean addIfService(Object object) {
     if (object instanceof Service) {
@@ -98,6 +104,7 @@ public class CompositeService extends AbstractService {
     }
   }
 
+  //依次按照添加顺序,初始化每一个服务
   protected void serviceInit(Configuration conf) throws Exception {
     List<Service> services = getServices();
     if (LOG.isDebugEnabled()) {
@@ -109,6 +116,7 @@ public class CompositeService extends AbstractService {
     super.serviceInit(conf);
   }
 
+  //依次按照添加顺序,开启每一个服务
   protected void serviceStart() throws Exception {
     List<Service> services = getServices();
     if (LOG.isDebugEnabled()) {
@@ -122,12 +130,14 @@ public class CompositeService extends AbstractService {
     super.serviceStart();
   }
 
+  //依次按照添加顺序,stop每一个服务
   protected void serviceStop() throws Exception {
     //stop all services that were started
     int numOfServicesToStop = serviceList.size();
     if (LOG.isDebugEnabled()) {
       LOG.debug(getName() + ": stopping services, size=" + numOfServicesToStop);
     }
+    //从最后一个服务开始,一直停止到第一个服务
     stop(numOfServicesToStop, STOP_ONLY_STARTED_SERVICES);
     super.serviceStop();
   }
@@ -135,23 +145,27 @@ public class CompositeService extends AbstractService {
   /**
    * Stop the services in reverse order
    *
-   * @param numOfServicesStarted index from where the stop should work
+   * @param numOfServicesStarted index from where the stop should work 从哪个服务开始停止,依次停止到第一个服务
    * @param stopOnlyStartedServices flag to say "only start services that are
-   * started, not those that are NOTINITED or INITED.
+   * started, not those that are NOTINITED or INITED.如果该参数是false,表示服务如果已经INITED初始化状态了,也要执行stop方法
    * @throws RuntimeException the first exception raised during the
    * stop process -<i>after all services are stopped</i>
    */
   private void stop(int numOfServicesStarted, boolean stopOnlyStartedServices) {
     // stop in reverse order of start
-    Exception firstException = null;
+    Exception firstException = null;//停止过程中第一个出异常的服务
     List<Service> services = getServices();
-    for (int i = numOfServicesStarted - 1; i >= 0; i--) {
+    for (int i = numOfServicesStarted - 1; i >= 0; i--) {//从哪个服务开始停止,依次停止到第一个服务
       Service service = services.get(i);
       if (LOG.isDebugEnabled()) {
         LOG.debug("Stopping service #" + i + ": " + service);
       }
-      STATE state = service.getServiceState();
+      STATE state = service.getServiceState();//获取停止前服务的状态
       //depending on the stop police
+      /**
+       * 如果服务已经开始了,则调用stop方法,如果有异常,则将异常存储,后续抛出
+       * 如果stopOnlyStartedServices参数是false,表示服务如果已经INITED初始化状态了,也要执行stop方法,如果有异常,则将异常存储,后续抛出
+       */
       if (state == STATE.STARTED 
          || (!stopOnlyStartedServices && state == STATE.INITED)) {
         Exception ex = ServiceOperations.stopQuietly(LOG, service);
@@ -160,7 +174,7 @@ public class CompositeService extends AbstractService {
         }
       }
     }
-    //after stopping all services, rethrow the first exception raised
+    //after stopping all services, rethrow the first exception raised 抛异常
     if (firstException != null) {
       throw ServiceStateException.convert(firstException);
     }
@@ -169,6 +183,7 @@ public class CompositeService extends AbstractService {
   /**
    * JVM Shutdown hook for CompositeService which will stop the give
    * CompositeService gracefully in case of JVM shutdown.
+   * 钩子,当停止的时候,调用run方法,停止stop该复合服务
    */
   public static class CompositeServiceShutdownHook implements Runnable {
 

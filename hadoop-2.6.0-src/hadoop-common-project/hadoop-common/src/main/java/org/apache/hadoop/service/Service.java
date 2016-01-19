@@ -29,6 +29,7 @@ import java.util.Map;
 
 /**
  * Service LifeCycle.
+ * 定义一个服务
  */
 @Public
 @Evolving
@@ -36,6 +37,8 @@ public interface Service extends Closeable {
 
   /**
    * Service states
+   * 表示服务的状态
+   * 四种状态,未初始化、已经初始化、开始、已经停止
    */
   public enum STATE {
     /** Constructed but not initialized */
@@ -108,7 +111,6 @@ public interface Service extends Closeable {
    * {@link STATE#STOPPED}.
    * @throws RuntimeException on any failure during the operation
    */
-
   void start();
 
   /**

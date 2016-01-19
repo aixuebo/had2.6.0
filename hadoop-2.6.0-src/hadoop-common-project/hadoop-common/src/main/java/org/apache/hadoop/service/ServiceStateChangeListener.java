@@ -23,6 +23,7 @@ import org.apache.hadoop.classification.InterfaceStability.Stable;
 
 /**
  * Interface to notify state changes of a service.
+ * 定义一个服务状态被更改的监听
  */
 @Public
 @Stable
@@ -44,6 +45,7 @@ public interface ServiceStateChangeListener {
    *
    *
    * @param service the service that has changed.
+   * 调用该函数的时候,说明服务的状态已经被更改了,传递参数就是服务对象即可,该对象可以获取当前最新的状态
    */
   void stateChanged(Service service);
 

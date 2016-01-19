@@ -23,6 +23,7 @@ import org.apache.hadoop.classification.InterfaceStability.Evolving;
 
 /**
  * Implements the service state model.
+ * 定义一个服务的状态的模型
  */
 @Public
 @Evolving
@@ -30,7 +31,9 @@ public class ServiceStateModel {
 
   /**
    * Map of all valid state transitions
+   * 定义所有的可用的状态转换欢喜
    * [current] [proposed1, proposed2, ...]
+   * 例如第一行,表示uninited状态可以转换成inited和stopped,因为他们是true,但是不能转换成uninited和started
    */
   private static final boolean[][] statemap =
     {
@@ -43,17 +46,20 @@ public class ServiceStateModel {
 
   /**
    * The state of the service
+   * 一个服务的状态
    */
   private volatile Service.STATE state;
 
   /**
    * The name of the service: used in exceptions
+   * 一个服务的name
    */
   private String name;
 
   /**
    * Create the service state model in the {@link Service.STATE#NOTINITED}
    * state.
+   * 定义一个服务以及该服务的状态
    */
   public ServiceStateModel(String name) {
     this(name, Service.STATE.NOTINITED);
@@ -71,6 +77,7 @@ public class ServiceStateModel {
   /**
    * Query the service state. This is a non-blocking operation.
    * @return the state
+   * 返回当前服务的状态
    */
   public Service.STATE getState() {
     return state;
@@ -80,6 +87,7 @@ public class ServiceStateModel {
    * Query that the state is in a specific state
    * @param proposed proposed new state
    * @return the state
+   * 判断当前状态是否与目标状态一致
    */
   public boolean isInState(Service.STATE proposed) {
     return state.equals(proposed);
@@ -90,6 +98,7 @@ public class ServiceStateModel {
    * @param expectedState the desired state
    * @throws ServiceStateException if the service state is different from
    * the desired state
+   * 确保当前状态与参数状态一致,即该方法是校验服务状态的
    */
   public void ensureCurrentState(Service.STATE expectedState) {
     if (state != expectedState) {
@@ -106,8 +115,10 @@ public class ServiceStateModel {
    * @param proposed proposed new state
    * @return the original state
    * @throws ServiceStateException if the transition is not permitted
+   * 切换状态,将服务的老状态切换成参数新状态,返回值是以前的老状态
    */
   public synchronized Service.STATE enterState(Service.STATE proposed) {
+    //校验当前状态current,能否转换成proposed状态,不能转换则抛异常
     checkStateTransition(name, state, proposed);
     Service.STATE oldState = state;
     //atomic write of the new state
@@ -121,6 +132,7 @@ public class ServiceStateModel {
    * @param name name of the service (can be null)
    * @param state current state
    * @param proposed proposed new state
+   * 校验当前状态current,能否转换成proposed状态,不能转换则抛异常
    */
   public static void checkStateTransition(String name,
                                           Service.STATE state,
@@ -142,6 +154,7 @@ public class ServiceStateModel {
    * @param current current state
    * @param proposed proposed new state
    * @return true if the transition to a new state is valid
+   * 校验当前状态current,能否转换成proposed状态,true表示可以转换
    */
   public static boolean isValidStateTransition(Service.STATE current,
                                                Service.STATE proposed) {
@@ -152,6 +165,7 @@ public class ServiceStateModel {
   /**
    * return the state text as the toString() value
    * @return the current state's description
+   * 打印该服务的名称以及当时的状态
    */
   @Override
   public String toString() {

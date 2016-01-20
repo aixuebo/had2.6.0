@@ -61,6 +61,9 @@ import org.apache.hadoop.conf.Configuration;
  * 3. In the class implementation, "Disk" is referred to as "Dir", which
  * actually points to the configured directory on the Disk which will be the
  * parent for all file write/read allocations.
+ * 
+ * 多个文件路径,应该以什么规则进行遍历使用每一个路径的解决方案
+ * 一个NodeManager对应一个该对象
  */
 @InterfaceAudience.LimitedPrivate({"HDFS", "MapReduce"})
 @InterfaceStability.Unstable
@@ -71,13 +74,13 @@ public class LocalDirAllocator {
   //is a static object to make sure there exists exactly one instance per JVM
   private static Map <String, AllocatorPerContext> contexts = 
                  new TreeMap<String, AllocatorPerContext>();
-  private String contextCfgItemName;
+  private String contextCfgItemName;//yarn.nodemanager.log-dirs 或者yarn.nodemanager.local-dirs
 
   /** Used when size of file to be allocated is unknown. */
   public static final int SIZE_UNKNOWN = -1;
 
   /**Create an allocator object
-   * @param contextCfgItemName
+   * @param contextCfgItemName,yarn.nodemanager.log-dirs 或者yarn.nodemanager.local-dirs,表示该资源分配器是针对数据目录的还是NodeManager的日志目录操作的
    */
   public LocalDirAllocator(String contextCfgItemName) {
     this.contextCfgItemName = contextCfgItemName;
@@ -109,6 +112,7 @@ public class LocalDirAllocator {
    *  @param conf the Configuration object
    *  @return the complete path to the file on a local disk
    *  @throws IOException
+   *  在多个目录中找到一个可以写的目录,目录名称为pathStr
    */
   public Path getLocalPathForWrite(String pathStr, 
       Configuration conf) throws IOException {
@@ -125,6 +129,7 @@ public class LocalDirAllocator {
    *  @param conf the Configuration object
    *  @return the complete path to the file on a local disk
    *  @throws IOException
+   *  在多个目录中找到一个可以写size大小的目录,目录名称为pathStr
    */
   public Path getLocalPathForWrite(String pathStr, long size, 
       Configuration conf) throws IOException {
@@ -142,6 +147,7 @@ public class LocalDirAllocator {
    *  @param checkWrite ensure that the path is writable
    *  @return the complete path to the file on a local disk
    *  @throws IOException
+   *  在多个目录中找到一个可以写size大小的目录,目录名称为pathStr
    */
   public Path getLocalPathForWrite(String pathStr, long size, 
                                    Configuration conf,
@@ -157,6 +163,7 @@ public class LocalDirAllocator {
    *  @param conf the Configuration object
    *  @return the complete path to the file on a local disk
    *  @throws IOException
+   *  在多个目录中找到第一个有pathStr的目录
    */
   public Path getLocalPathToRead(String pathStr, 
       Configuration conf) throws IOException {
@@ -170,6 +177,7 @@ public class LocalDirAllocator {
    * @param conf the configuration to look up the roots in
    * @return all of the paths that exist under any of the roots
    * @throws IOException
+   * 在多个目录中找到所有pathStr的目录
    */
   public Iterable<Path> getAllLocalPathsToRead(String pathStr, 
                                                Configuration conf
@@ -191,6 +199,7 @@ public class LocalDirAllocator {
    *  @param conf the Configuration object
    *  @return a unique temporary file
    *  @throws IOException
+   *  建立临时文件,jvm关闭的时候,则文件被删除
    */
   public File createTmpFileForWrite(String pathStr, long size, 
       Configuration conf) throws IOException {
@@ -227,6 +236,7 @@ public class LocalDirAllocator {
    *  @param conf the Configuration object
    *  @return true if files exist. false otherwise
    *  @throws IOException
+   *  是否存在该pathStr目录
    */
   public boolean ifExists(String pathStr,Configuration conf) {
     AllocatorPerContext context = obtainContext(contextCfgItemName);
@@ -236,6 +246,7 @@ public class LocalDirAllocator {
   /**
    * Get the current directory index for the given configuration item.
    * @return the current directory index for the given configuration item.
+   * 获取当前已经到第几个目录下了
    */
   int getCurrentDirectoryIndex() {
     AllocatorPerContext context = obtainContext(contextCfgItemName);
@@ -247,12 +258,12 @@ public class LocalDirAllocator {
     private final Log LOG =
       LogFactory.getLog(AllocatorPerContext.class);
 
-    private int dirNumLastAccessed;
+    private int dirNumLastAccessed;//获取当前应该循环第几个目录了
     private Random dirIndexRandomizer = new Random();
-    private FileSystem localFS;
-    private DF[] dirDF;
-    private String contextCfgItemName;
-    private String[] localDirs;
+    private FileSystem localFS;//本地文件操作系统
+    private String contextCfgItemName;//yarn.nodemanager.log-dirs 或者yarn.nodemanager.local-dirs
+    private String[] localDirs;//最新的可用的目录集合
+    private DF[] dirDF;//最新的可用的目录集合,每一个目录对应一个DF对象
     private String savedLocalDirs = "";
 
     public AllocatorPerContext(String contextCfgItemName) {
@@ -264,8 +275,8 @@ public class LocalDirAllocator {
      */
     private synchronized void confChanged(Configuration conf) 
         throws IOException {
-      String newLocalDirs = conf.get(contextCfgItemName);
-      if (!newLocalDirs.equals(savedLocalDirs)) {
+      String newLocalDirs = conf.get(contextCfgItemName);//获取对应的目录集合
+      if (!newLocalDirs.equals(savedLocalDirs)) {//判断上一次和这次的目录集合是否不同,不同的原因是因为有些目录损坏了.因此被干掉了
         localDirs = StringUtils.getTrimmedStrings(newLocalDirs);
         localFS = FileSystem.getLocal(conf);
         int numDirs = localDirs.length;
@@ -306,6 +317,11 @@ public class LocalDirAllocator {
       }
     }
 
+    /**
+     * 在一个目录下创建一个path 
+     * @param path
+     * @param checkWrite 如果该值为true,表示创建的目录还要进行校验是否有写权限
+     */
     private Path createPath(String path, 
         boolean checkWrite) throws IOException {
       Path file = new Path(new Path(localDirs[dirNumLastAccessed]),
@@ -327,6 +343,7 @@ public class LocalDirAllocator {
     /**
      * Get the current directory index.
      * @return the current directory index.
+     * 获取当前应该循环第几个目录了
      */
     int getCurrentDirectoryIndex() {
       return dirNumLastAccessed;
@@ -338,6 +355,7 @@ public class LocalDirAllocator {
      *  
      *  If size is not known, use roulette selection -- pick directories
      *  with probability proportional to their available space.
+     *  申请一个路径,并且要求至少size个磁盘空间大小,并且checkWrite=true表示还得有写权限
      */
     public synchronized Path getLocalPathForWrite(String pathStr, long size, 
         Configuration conf, boolean checkWrite) throws IOException {
@@ -351,10 +369,10 @@ public class LocalDirAllocator {
       }
       Path returnPath = null;
       
-      if(size == SIZE_UNKNOWN) {  //do roulette selection: pick dir with probability 
+      if(size == SIZE_UNKNOWN) {  //do roulette selection: pick dir with probability 申请没有要求所需要的磁盘大小
                     //proportional to available size
-        long[] availableOnDisk = new long[dirDF.length];
-        long totalAvailable = 0;
+        long[] availableOnDisk = new long[dirDF.length];//每一个磁盘可用的空间大小
+        long totalAvailable = 0;//可用资源总和
         
             //build the "roulette wheel"
         for(int i =0; i < dirDF.length; ++i) {
@@ -369,22 +387,22 @@ public class LocalDirAllocator {
         // Keep rolling the wheel till we get a valid path
         Random r = new java.util.Random();
         while (numDirsSearched < numDirs && returnPath == null) {
-          long randomPosition = Math.abs(r.nextLong()) % totalAvailable;
+          long randomPosition = Math.abs(r.nextLong()) % totalAvailable;//随机选择一个可用磁盘的位置
           int dir = 0;
-          while (randomPosition > availableOnDisk[dir]) {
+          while (randomPosition > availableOnDisk[dir]) {//找到该磁盘位置,就是最终选择的磁盘
             randomPosition -= availableOnDisk[dir];
             dir++;
           }
           dirNumLastAccessed = dir;
           returnPath = createPath(pathStr, checkWrite);
-          if (returnPath == null) {
-            totalAvailable -= availableOnDisk[dir];
-            availableOnDisk[dir] = 0; // skip this disk
+          if (returnPath == null) {//说明磁盘异常,则清理该磁盘
+            totalAvailable -= availableOnDisk[dir];//减少总可用空间
+            availableOnDisk[dir] = 0; // skip this disk 减少该磁盘
             numDirsSearched++;
           }
         }
-      } else {
-        while (numDirsSearched < numDirs && returnPath == null) {
+      } else {//申请中要求了需要的磁盘大小
+        while (numDirsSearched < numDirs && returnPath == null) {//依次查找磁盘,找到满足size大小的磁盘为止
           long capacity = dirDF[dirNumLastAccessed].getAvailable();
           if (capacity > size) {
             returnPath = createPath(pathStr, checkWrite);
@@ -408,16 +426,17 @@ public class LocalDirAllocator {
      *  round-robin over the set of disks (via the configured dirs) and return
      *  a file on the first path which has enough space. The file is guaranteed
      *  to go away when the JVM exits.
+     *  创建一个临时磁盘,当JVM关闭的时候,该目录也会被自动释放
      */
     public File createTmpFileForWrite(String pathStr, long size, 
         Configuration conf) throws IOException {
 
-      // find an appropriate directory
+      // find an appropriate directory 申请一个路径,并且要求至少size个磁盘空间大小,并且checkWrite=true表示还得有写权限
       Path path = getLocalPathForWrite(pathStr, size, conf, true);
       File dir = new File(path.getParent().toUri().getPath());
       String prefix = path.getName();
 
-      // create a temp file on this directory
+      // create a temp file on this directory 创建一个临时磁盘,当JVM关闭的时候,该目录也会被自动释放
       File result = File.createTempFile(prefix, null, dir);
       result.deleteOnExit();
       return result;
@@ -426,6 +445,7 @@ public class LocalDirAllocator {
     /** Get a path from the local FS for reading. We search through all the
      *  configured dirs for the file's existence and return the complete
      *  path to the file when we find one 
+     *  读取pathStr目录,即循环每一个磁盘,找到第一个有该pathStr目录的即可返回该路径
      */
     public synchronized Path getLocalPathToRead(String pathStr, 
         Configuration conf) throws IOException {
@@ -450,12 +470,17 @@ public class LocalDirAllocator {
       " the configured local directories");
     }
 
+    /**
+     * 对所有的磁盘下,去寻找一个path路径,如果存在,则遍历
+     * 例如所有的磁盘下,有/aa/bb/cc目录的有3个磁盘.则依次循环这三个磁盘的/aa/bb/cc目录
+     */
     private static class PathIterator implements Iterator<Path>, Iterable<Path> {
       private final FileSystem fs;
-      private final String pathStr;
       private int i = 0;
-      private final String[] rootDirs;
-      private Path next = null;
+      private final String[] rootDirs;//从根目录开始循环查找
+      private final String pathStr;//查找该目录
+      
+      private Path next = null;//下一个找到的目录是什么目录
 
       private PathIterator(FileSystem fs, String pathStr, String[] rootDirs)
           throws IOException {
@@ -470,6 +495,10 @@ public class LocalDirAllocator {
         return next != null;
       }
 
+      /**
+       * 寻找下一个
+       * @throws IOException
+       */
       private void advance() throws IOException {
         while (i < rootDirs.length) {
           next = new Path(rootDirs[i++], pathStr);
@@ -523,6 +552,7 @@ public class LocalDirAllocator {
 
     /** We search through all the configured dirs for the file's existence
      *  and return true when we find one 
+     *  循环每一个磁盘,找到第一个有该pathStr目录的即可返回true
      */
     public synchronized boolean ifExists(String pathStr,Configuration conf) {
       try {

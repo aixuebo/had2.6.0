@@ -66,6 +66,14 @@ public class HostsFileReader {
     readFileToSetWithFileInputStream(type, filename, fis, set);
   }
 
+  /**
+   * 读取fileInputStream的内容,将内容添加到set集合内
+   * @param type
+   * @param filename
+   * @param fileInputStream
+   * @param set
+   * @throws IOException
+   */
   @Private
   public static void readFileToSetWithFileInputStream(String type,String filename, InputStream fileInputStream, Set<String> set) throws IOException {
       
@@ -74,7 +82,7 @@ public class HostsFileReader {
       reader = new BufferedReader(new InputStreamReader(fileInputStream));
       String line;
       while ((line = reader.readLine()) != null) {
-        String[] nodes = line.split("[ \t\n\f\r]+");
+        String[] nodes = line.split("[ \t\n\f\r]+");//每行按照这些内容拆分,将每一个部分内容都添加到set集合中
         if (nodes != null) {
           for (int i = 0; i < nodes.length; i++) {
             if (nodes[i].trim().startsWith("#")) {

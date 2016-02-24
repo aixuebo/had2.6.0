@@ -1,0 +1,46 @@
+1.多久AM向yarn上的Master服务器发送一次请求
+2.每次AM发送的请求中ask是由什么情况下组成的，尤其考虑他的resourceName
+3.Master服务器会返回application.getPreemptionContainers()给AM,意义是什么
+4.Master服务器会执行application.pullNewlyAllocatedContainersAndNMTokens();并且返回给AM,意义是什么
+通知AM应应该向什么节点去执行哪些容器,以及每一个容器对应的token
+
+
+MRAppMaster
+AM
+NameNode
+DataNode
+App
+AppAtemp
+yarn
+
+YARNRunner  createApplicationSubmissionContext
+RunJar
+org.apache.hadoop.mapreduce.Job 在本地运行
+Job job = Job.getInstance(this.getConf(), "")
+boolean success = job.waitForCompletion(true);
+
+
+一、ClientProtocol 提供本地执行hadoop的程序如何与yarn集群上取得联系的协议。
+主要方法,创建集群连接,和关闭与集群的链接
+主要是生成了YARNRunner对象,该对象创建了new YarnClientImpl(),因此与yarn集群联系上了,可以获取集群上队列以及每一个job的执行情况等信息。
+
+二、Job该类会创建ClientProtocol对象,获取集群信息。
+
+三、JobSubmitter(FileSystem submitFs, ClientProtocol submitClient) 
+参数说明
+1.submitFs是文件系统,client.getSystemDir()对应的文件系统,该系统可以确定submit提交的jar包等是从什么地方加载,是从本地服务器加载还是从hdfs上加载。
+2.submitClient是链接集群yarn的对象
+
+org.apache.hadoop.util.GenericOptionsParser
+-libjars /data11/coohua/app/statistic_hadoop/1.7/commons-digester-1.8.jar,/data11/coohua/app/statistic_hadoop/1.7/commons-discovery-0.2.jar
+将参数转换成其他名称,存储到conf中
+
+yarn.app.mapreduce.am.staging-dir  /tmp/hadoop-yarn/
+问题:jar包什么时候上传到yarn上的hadoop fs -ls /tmp/hadoop-yarn/staging/coohua/.staging/job_1446071754254_78428
+
+如果path配置/xx/xx1的时候,使用的是默认操作系统
+<property>
+<name>fs.defaultFS</name>
+<value>hdfs://namenode1:9000</value>
+<source>core-site.xml</source>
+</property>

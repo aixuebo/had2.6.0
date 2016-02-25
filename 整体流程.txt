@@ -44,3 +44,240 @@ yarn.app.mapreduce.am.staging-dir  /tmp/hadoop-yarn/
 <value>hdfs://namenode1:9000</value>
 <source>core-site.xml</source>
 </property>
+
+--20160225-------------
+一、创建app的全局上下文信息 
+   public ApplicationSubmissionContext createApplicationSubmissionContext(
+      Configuration jobConf,
+      String jobSubmitDir, Credentials ts) throws IOException {
+
+1.设置资源
+       Resource capability = recordFactory.newRecordInstance(Resource.class);
+    capability.setMemory(
+        conf.getInt(
+            MRJobConfig.MR_AM_VMEM_MB, MRJobConfig.DEFAULT_MR_AM_VMEM_MB
+            )
+        );
+    capability.setVirtualCores(
+        conf.getInt(
+            MRJobConfig.MR_AM_CPU_VCORES, MRJobConfig.DEFAULT_MR_AM_CPU_VCORES
+            )
+        );
+    LOG.debug("AppMaster capability = " + capability);
+2.设置hdfs上的job.xml,jar,split文件
+    key是name,分别可以代表job.xml,jar,split等信息,value是该信息对应的详细信息,见3
+    Map<String, LocalResource> localResources = new HashMap<String, LocalResource>();
+3.
+  private LocalResource createApplicationResource(FileContext fs, Path p, LocalResourceType type)
+      throws IOException {
+    LocalResource rsrc = recordFactory.newRecordInstance(LocalResource.class);
+    FileStatus rsrcStat = fs.getFileStatus(p);
+    rsrc.setResource(ConverterUtils.getYarnUrlFromPath(fs
+        .getDefaultFileSystem().resolvePath(rsrcStat.getPath())));
+    rsrc.setSize(rsrcStat.getLen());
+    rsrc.setTimestamp(rsrcStat.getModificationTime());
+    rsrc.setType(type);
+    rsrc.setVisibility(LocalResourceVisibility.APPLICATION);
+    return rsrc;
+  }
+4.生成启动脚本,即org.apache.hadoop.mapreduce.v2.app.MRAppMaster作为启动类
+ 设置各种参数
+
+5.ContainerLaunchContext 生成启动该job的每一个容器的上下文
+    ContainerLaunchContext amContainer =
+        ContainerLaunchContext.newInstance(localResources, environment,
+          vargsFinal, null, securityTokens, acls);
+包括:
+a.启动时候下载job.xml、spilt文件、jar等文件的资源信息，
+b.上下文环境变量
+c.启动的脚本,即4.
+d.启动的安全token
+e.启动的权限信息
+
+6.最终创建ApplicationSubmissionContext,表示一个app的全部上下文信息
+ public static ApplicationSubmissionContext newInstance(
+      ApplicationId applicationId, String applicationName, String queue,
+      Priority priority, ContainerLaunchContext amContainer,
+      boolean isUnmanagedAM, boolean cancelTokensWhenComplete,
+      int maxAppAttempts, Resource resource, String applicationType,
+      boolean keepContainers, String appLabelExpression,
+      String amContainerLabelExpression) {
+    ApplicationSubmissionContext context =
+        Records.newRecord(ApplicationSubmissionContext.class);
+    context.setApplicationId(applicationId);//appId
+    context.setApplicationName(applicationName);//名称
+    context.setAMContainerSpec(amContainer);//容器在app任务上任意一个任务需要的环境
+    context.setUnmanagedAM(isUnmanagedAM);
+    context.setKeepContainersAcrossApplicationAttempts(keepContainers);
+    context.setResource(resource);//执行每一个容器所需要的集群资源
+
+    context.setQueue(queue);
+    context.setPriority(priority);
+    context.setCancelTokensWhenComplete(cancelTokensWhenComplete);
+    context.setMaxAppAttempts(maxAppAttempts);
+    context.setApplicationType(applicationType);
+    context.setNodeLabelExpression(appLabelExpression);
+
+    
+    ResourceRequest amReq = Records.newRecord(ResourceRequest.class);
+    amReq.setResourceName(ResourceRequest.ANY);
+    amReq.setCapability(resource);
+    amReq.setNumContainers(1);
+    amReq.setRelaxLocality(true);
+    amReq.setNodeLabelExpression(amContainerLabelExpression);
+    context.setAMContainerResourceRequest(amReq);
+    return context;
+  }
+
+以下是创建代码
+    ApplicationSubmissionContext appContext =
+        recordFactory.newRecordInstance(ApplicationSubmissionContext.class);
+    appContext.setApplicationId(applicationId);                // ApplicationId
+    appContext.setQueue(                                       // Queue name
+        jobConf.get(JobContext.QUEUE_NAME,
+        YarnConfiguration.DEFAULT_QUEUE_NAME));
+    // add reservationID if present
+    ReservationId reservationID = null;
+    try {
+      reservationID =
+          ReservationId.parseReservationId(jobConf
+              .get(JobContext.RESERVATION_ID));
+    } catch (NumberFormatException e) {
+      // throw exception as reservationid as is invalid
+      String errMsg =
+          "Invalid reservationId: " + jobConf.get(JobContext.RESERVATION_ID)
+              + " specified for the app: " + applicationId;
+      LOG.warn(errMsg);
+      throw new IOException(errMsg);
+    }
+    if (reservationID != null) {
+      appContext.setReservationID(reservationID);
+      LOG.info("SUBMITTING ApplicationSubmissionContext app:" + applicationId
+          + " to queue:" + appContext.getQueue() + " with reservationId:"
+          + appContext.getReservationID());
+    }
+    appContext.setApplicationName(                             // Job name
+        jobConf.get(JobContext.JOB_NAME,
+        YarnConfiguration.DEFAULT_APPLICATION_NAME));
+    appContext.setCancelTokensWhenComplete(
+        conf.getBoolean(MRJobConfig.JOB_CANCEL_DELEGATION_TOKEN, true));
+    appContext.setAMContainerSpec(amContainer);         // AM Container
+    appContext.setMaxAppAttempts(
+        conf.getInt(MRJobConfig.MR_AM_MAX_ATTEMPTS,
+            MRJobConfig.DEFAULT_MR_AM_MAX_ATTEMPTS));
+    appContext.setResource(capability);
+    appContext.setApplicationType(MRJobConfig.MR_APPLICATION_TYPE);
+    if (tagsFromConf != null && !tagsFromConf.isEmpty()) {
+      appContext.setApplicationTags(new HashSet<String>(tagsFromConf));
+    }
+
+二、public JobStatus submitJob(JobID jobId, String jobSubmitDir, Credentials ts)
+1.先执行一,准备该job的上线文    
+ApplicationSubmissionContext appContext =
+      createApplicationSubmissionContext(conf, jobSubmitDir, ts);
+2.向yarn提交该应用
+ApplicationId applicationId =
+          resMgrDelegate.submitApplication(appContext);
+3.ClientRMService 接口是yarn上的客户端接口实现类
+ 执行submitApplication方法
+4.在客户端不断执行
+YarnApplicationState state =
+            getApplicationReport(applicationId).getYarnApplicationState();
+判断该应用是否已经有变化了,如果有变化了，则说明yarn成功接收该job了
+5. ApplicationReport appMaster = resMgrDelegate.getApplicationReport(applicationId);
+             String diagnostics =
+          (appMaster == null ?
+              "application report is null" : appMaster.getDiagnostics());
+      if (appMaster == null
+          || appMaster.getYarnApplicationState() == YarnApplicationState.FAILED
+          || appMaster.getYarnApplicationState() == YarnApplicationState.KILLED) {
+        throw new IOException("Failed to run job : " +
+            diagnostics);
+      }
+      return clientCache.getClient(jobId).getJobStatus(jobId);
+完成初步提交,因为客户端已经返回了jobStataus对象,可以跟踪该job了。
+
+
+
+三、报道
+ApplicationReport 代表一个app作业的详细信息
+    ApplicationReport report = Records.newRecord(ApplicationReport.class);
+    report.setApplicationId(applicationId);//appId
+    report.setCurrentApplicationAttemptId(applicationAttemptId);//当前针对该app的尝试任务AM的id
+    report.setUser(user);
+    report.setQueue(queue);
+    report.setName(name);
+    
+    report.setHost(host);
+    report.setRpcPort(rpcPort);
+    report.setTrackingUrl(url);
+    report.setApplicationResourceUsageReport(appResources);
+    report.setOriginalTrackingUrl(origTrackingUrl);
+    
+    report.setClientToAMToken(clientToAMToken);
+    report.setYarnApplicationState(state);
+    report.setDiagnostics(diagnostics);
+    report.setStartTime(startTime);
+    report.setFinishTime(finishTime);
+    report.setFinalApplicationStatus(finalStatus);
+    report.setProgress(progress);
+    report.setApplicationType(applicationType);
+    report.setAMRMToken(amRmToken);
+
+
+ApplicationAttemptReport 一个job作业的一个尝试任务的详细信息,即AM的详细信息
+    ApplicationAttemptReport report =
+        Records.newRecord(ApplicationAttemptReport.class);
+    report.setApplicationAttemptId(applicationAttemptId);
+    report.setHost(host);
+    report.setRpcPort(rpcPort);
+    report.setTrackingUrl(url);
+    report.setOriginalTrackingUrl(oUrl);
+    report.setDiagnostics(diagnostics);
+    report.setYarnApplicationAttemptState(state);
+    report.setAMContainerId(amContainerId);
+
+ContainerReport 代表某个容器的详细信息
+    ContainerReport report = Records.newRecord(ContainerReport.class);
+    report.setContainerId(containerId);
+    report.setAllocatedResource(allocatedResource);
+    report.setAssignedNode(assignedNode);
+    report.setPriority(priority);
+    report.setCreationTime(creationTime);
+    report.setFinishTime(finishTime);
+    report.setDiagnosticsInfo(diagnosticInfo);
+    report.setLogUrl(logUrl);
+    report.setContainerExitStatus(containerExitStatus);
+    report.setContainerState(containerState);
+
+KillApplicationResponse forceKillApplication(KillApplicationRequest request)
+    //发送app的kill事件
+    this.rmContext.getDispatcher().getEventHandler()
+        .handle(new RMAppEvent(applicationId, RMAppEventType.KILL));
+
+
+caseSensitive true表示大小写敏感,false表示不敏感,大小写都无所谓
+  public GetApplicationsResponse getApplications(      GetApplicationsRequest request, boolean caseSensitive)
+根据不同查询条件,返回每一个app作业的进展信息
+
+NodeReport 表示一个Node节点的报告信息
+    NodeReport nodeReport = Records.newRecord(NodeReport.class);
+    nodeReport.setNodeId(nodeId);
+    nodeReport.setNodeState(nodeState);
+    nodeReport.setHttpAddress(httpAddress);
+    nodeReport.setRackName(rackName);
+    nodeReport.setUsed(used);//已经使用资源
+    nodeReport.setCapability(capability);//总资源
+    nodeReport.setNumContainers(numContainers);//已经有多少个容器在上面执行
+    nodeReport.setHealthReport(healthReport);
+    nodeReport.setLastHealthReportTime(lastHealthReportTime);
+    nodeReport.setNodeLabels(nodeLabels);
+
+该方法返回满足条件的所有节点的node信息
+public GetClusterNodesResponse getClusterNodes(GetClusterNodesRequest request)
+
+返回队列信息
+public GetQueueInfoResponse getQueueInfo(GetQueueInfoRequest request)
+
+--------------------
+ApplicationMasterLauncher

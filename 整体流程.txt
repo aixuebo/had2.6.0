@@ -281,3 +281,74 @@ public GetQueueInfoResponse getQueueInfo(GetQueueInfoRequest request)
 
 --------------------
 ApplicationMasterLauncher
+
+
+20160226-----------------------
+
+NodeStatusUpdaterImpl
+请求
+  public static NodeStatus newInstance(NodeId nodeId, int responseId,
+      List<ContainerStatus> containerStatuses,
+      List<ApplicationId> keepAliveApplications,
+      NodeHealthStatus nodeHealthStatus) {
+    NodeStatus nodeStatus = Records.newRecord(NodeStatus.class);
+    nodeStatus.setResponseId(responseId);//responseId,该id是resourceManager上一次返回给节点的ID
+    nodeStatus.setNodeId(nodeId);//节点Id
+    nodeStatus.setContainersStatuses(containerStatuses);//当前节点上容器集合
+    nodeStatus.setKeepAliveApplications(keepAliveApplications);//当前该节点依然还活跃的应用集合,appTokenKeepAliveMap中yarn本应该清理的app,但是现在依然活着
+    nodeStatus.setNodeHealthStatus(nodeHealthStatus);//节点当前健康情况
+    return nodeStatus;
+
+
+回复
+/**
+ * 节点心跳后,返回给节点的对象
+ * 参见ResourceTrackerService类
+ */
+public interface NodeHeartbeatResponse {
+  //新的responseId,上一个responseId+1的结果
+  int getResponseId();
+  void setResponseId(int responseId);
+  
+
+  //去清理的容器
+  List<ContainerId> getContainersToCleanup();
+  void addAllContainersToCleanup(List<ContainerId> containers);
+  
+  //去移除的容器
+  List<ContainerId> getContainersToBeRemovedFromNM();
+  // This tells NM to remove finished containers from its context. Currently, NM
+  // will remove finished containers from its context only after AM has actually
+  // received the finished containers in a previous allocate response
+  void addContainersToBeRemovedFromNM(List<ContainerId> containers);
+  
+  //去清理的应用
+  List<ApplicationId> getApplicationsToCleanup();
+  //去清理的应用
+  void addAllApplicationsToCleanup(List<ApplicationId> applications);
+  
+  
+  //动作
+  NodeAction getNodeAction();
+  void setNodeAction(NodeAction action);
+
+  //密钥
+  MasterKey getContainerTokenMasterKey();
+  void setContainerTokenMasterKey(MasterKey secretKey);
+  //密钥  
+  MasterKey getNMTokenMasterKey();
+  void setNMTokenMasterKey(MasterKey secretKey);
+
+  //下一次请求时间
+  long getNextHeartBeatInterval();
+  void setNextHeartBeatInterval(long nextHeartBeatInterval);
+  
+  //发生异常的时候,发送特别的信息
+  String getDiagnosticsMessage();
+  void setDiagnosticsMessage(String diagnosticsMessage);
+
+  // Credentials (i.e. hdfs tokens) needed by NodeManagers for application
+  // localizations and logAggreations.
+  Map<ApplicationId, ByteBuffer> getSystemCredentialsForApps();
+  void setSystemCredentialsForApps(Map<ApplicationId, ByteBuffer> systemCredentials);
+}

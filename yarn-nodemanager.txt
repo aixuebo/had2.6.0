@@ -1,0 +1,145 @@
+NodeManager
+一、ContainerManagerImpl
+作用:
+1.开启一些容器、关闭一些容器、查看容器状态,这些是server方式提供的,yarn可以直接访问
+2.处理ContainerManagerEventType事件
+public enum  {
+  FINISH_APPS,  
+  FINISH_CONTAINERS,
+}
+-----------------
+关联属性
+  private final ResourceLocalizationService rsrcLocalizationSrvc; 为容器提交下载资源
+  private final ContainersLauncher containersLauncher; 启动容器
+
+-----------------
+开启一组容器
+1.循环每一个容器
+2.创建ContainerImpl对象
+3.根据ContainerImpl对象,获取ApplicationId
+4.context.getContainers().putIfAbsent(containerId, container) != null 使该容器添加到全局映射中
+5.创建Application application = new ApplicationImpl(dispatcher, user, applicationID, credentials, context);对象
+6.if (null == context.getApplications().putIfAbsent(applicationID,application)) {//不存在该容器
+  如果该应用不存在,首次添加,发布事件ApplicationEventType.INIT_APPLICATION,dispatcher.getEventHandler().handle(new ApplicationInitEvent(applicationID, appAcls,logAggregationContext));
+7.发布事件ApplicationEventType.INIT_CONTAINER,dispatcher.getEventHandler().handle(new ApplicationContainerInitEvent(container));初始化该容器
+
+-----------------
+停止一组容器
+1.循环每一个容器
+2.发布事件ContainerEventType.KILL_CONTAINER
+      dispatcher.getEventHandler().handle(new ContainerKillEvent(containerID,ContainerExitStatus.KILLED_BY_APPMASTER,"Container killed by the ApplicationMaster."));
+  原因是这种停止,一定都是yarn发过来的,不是正常的由该node节点发起的停止
+
+-----------------
+获取一组容器的详细信息
+1.循环每一个容器
+2.调用该容器的详细信息方法
+
+-----------------
+handle
+1.ContainerManagerEventType.FINISH_APPS 表示完成了一组app
+  循环每一个app
+  发送事件 ApplicationEventType.FINISH_APPLICATION, this.dispatcher.getEventHandler().handle(new ApplicationFinishEvent(appID,diagnostic));
+2.ContainerManagerEventType.FINISH_CONTAINERS 表示完成了一组容器
+  循环每一个容器
+  发送事件ContainerEventType.KILL_CONTAINER,this.dispatcher.getEventHandler().handle(new ContainerKillEvent(container,ContainerExitStatus.KILLED_BY_RESOURCEMANAGER,"Container Killed by ResourceManager"));
+
+-----------------
+二、NodeStatusUpdaterImpl
+作用:
+1.向RM注册该节点
+2.定期发送心跳给RM,并且根据恢复的信息进行处理
+
+-----------------
+向RM注册该节点
+1.生成注册对象,即该Node的信息
+    RegisterNodeManagerRequest request =
+        RegisterNodeManagerRequest.newInstance(nodeId, httpPort, totalResource,
+          nodeManagerVersionId, containerReports, getRunningApplications());
+  包括nodeId、port、该node上所有的资源之和、yarn的版本号、所有的容器的信息、所有运行的appId集合
+  其中所有的容器的信息、所有运行的appId集合 目的是让yarn知道该node上还可能可以还原多少容器
+2.发送给RM.注册该node,返回返回值
+3.通过返回值获取RM的唯一标示rmIdentifier
+4.NodeAction.SHUTDOWN.equals(regNMResponse.getNodeAction())  //注册异常,则抛异常
+  表示RM说本次注册异常,抛异常,需要运维去检查问题
+5.比较最小的RM的版本号,基本上这个异常不会出现,因为一般都是使用同一版本的hadoop
+
+-----------------
+1.生成心跳对象,并且发送该对象
+ *  NodeStatus nodeStatus = Records.newRecord(NodeStatus.class);
+    nodeStatus.setResponseId(responseId);//responseId,该id是resourceManager上一次返回给节点的ID
+    nodeStatus.setNodeId(nodeId);//节点Id
+    nodeStatus.setContainersStatuses(containerStatuses);//当前节点上容器集合
+    nodeStatus.setKeepAliveApplications(keepAliveApplications);//当前该节点依然还活跃的应用集合,appTokenKeepAliveMap中yarn本应该清理的app,但是现在依然活着
+    nodeStatus.setNodeHealthStatus(nodeHealthStatus);//节点当前健康情况
+2.if (response.getNodeAction() == NodeAction.SHUTDOWN) {//接收到shutdown命令
+  发送事件 dispatcher.getEventHandler().handle(new NodeManagerEvent(NodeManagerEventType.SHUTDOWN));
+3.if (response.getNodeAction() == NodeAction.RESYNC) {
+  发送事件 dispatcher.getEventHandler().handle(new NodeManagerEvent(NodeManagerEventType.RESYNC));
+4.心跳回复说可以移除的容器集合
+  removeOrTrackCompletedContainersFromContext(response.getContainersToBeRemovedFromNM());
+5.处理心跳回复关于要清理的容器集合
+            List<ContainerId> containersToCleanup = response.getContainersToCleanup();
+            if (!containersToCleanup.isEmpty()) {
+	      发送事件ContainerManagerEventType.FINISH_CONTAINERS
+              dispatcher.getEventHandler().handle(new CMgrCompletedContainersEvent(containersToCleanup,CMgrCompletedContainersEvent.Reason.BY_RESOURCEMANAGER));
+            }
+6.处理心跳回复关于要清理的app集合
+            List<ApplicationId> appsToCleanup = response.getApplicationsToCleanup();
+            //Only start tracking for keepAlive on FINISH_APP
+            trackAppsForKeepAlive(appsToCleanup);
+            if (!appsToCleanup.isEmpty()) {
+	    发送事件 ContainerManagerEventType.FINISH_APPS
+              dispatcher.getEventHandler().handle(new CMgrCompletedAppsEvent(appsToCleanup,CMgrCompletedAppsEvent.Reason.BY_RESOURCEMANAGER)); 
+            }
+7.如果抛异常,则发送事件 dispatcher.getEventHandler().handle(new NodeManagerEvent(NodeManagerEventType.SHUTDOWN));
+8.睡眠一定时间
+
+-----------------
+心跳处理心跳回复关于要清理的app集合的时候,因为app要去清理一阵子,因此将该appId缓存起来
+ Map<ApplicationId, Long> appTokenKeepAliveMap = new HashMap<ApplicationId, Long>();
+-----------------
+最近停止的容器缓存起来,key是容器ID,value是该容器删除的时间,允许这段时间内虽然容器停止了,但是该容器的信息还可以查询到
+private final Map<ContainerId, Long> recentlyStoppedContainers;
+
+-----------------
+三、ApplicationImpl
+ContainerManagerImpl 产生了INIT_APPLICATION、INIT_CONTAINER、FINISH_APPLICATION
+
+1.INIT_APPLICATION 初始化该app,只有该node上第一个收到该app的容器,才会产生该事件
+  启动日志服务事件
+       app.dispatcher.getEventHandler().handle(
+          new LogHandlerAppStartedEvent(app.appId, app.user,
+              app.credentials, ContainerLogsRetentionPolicy.ALL_CONTAINERS,
+              app.applicationACLs, app.logAggregationContext)); 
+
+2.INIT_CONTAINER 初始化容器,该node上收到一个启动容器的请求时,就会产生该事件
+  app.containers.put(container.getContainerId(), container);
+  产生ContainerEventType.INIT_CONTAINER事件,app.dispatcher.getEventHandler().handle(new ContainerInitEvent(container.getContainerId()));
+3.
+
+-----------------
+四、ContainerImpl
+ApplicationImpl 产生了ContainerEventType.INIT_CONTAINER、
+
+
+1.INIT_CONTAINER 初始化一个容器
+a.启动第三方服务事件 container.dispatcher.getEventHandler().handle(new AuxServicesEvent(AuxServicesEventType.CONTAINER_INIT, container));
+b.发送请求,加载该容器所需要的容器集合
+c.将所有要加载的资源,每一个资源生成一个LocalResourceRequest对象,保存在container.pendingResources中,并且也按照可见性不同,分别保存在
+container.publicRsrcs.add(req);
+container.privateRsrcs.add(req);
+container.appRsrcs.add(req);
+
+        //可见性,该可见性下的要加载的文件集合
+        Map<LocalResourceVisibility, Collection<LocalResourceRequest>> req = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
+发送下载这些资源事件 LocalizationEventType.INIT_CONTAINER_RESOURCES       
+        container.dispatcher.getEventHandler().handle(new ContainerLocalizationRequestEvent(container, req));
+返回正在加载状态
+        return ContainerState.LOCALIZING;
+d.如果加载过程中,如果失败了,则会清理资源,并且返回状态为加载失败状态.
+          container.cleanup();
+          return ContainerState.LOCALIZATION_FAILED;
+e.如果资源没有,则container.sendLaunchEvent(); 并且返回加载完成状态return ContainerState.LOCALIZED;
+
+2.

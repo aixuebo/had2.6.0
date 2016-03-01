@@ -133,7 +133,7 @@ container.appRsrcs.add(req);
 
         //可见性,该可见性下的要加载的文件集合
         Map<LocalResourceVisibility, Collection<LocalResourceRequest>> req = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
-发送下载这些资源事件 LocalizationEventType.INIT_CONTAINER_RESOURCES       
+发送下载这些资源事件 LocalizationEventType.INIT_CONTAINER_RESOURCES
         container.dispatcher.getEventHandler().handle(new ContainerLocalizationRequestEvent(container, req));
 返回正在加载状态
         return ContainerState.LOCALIZING;

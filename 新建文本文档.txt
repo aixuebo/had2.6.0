@@ -1,0 +1,83 @@
+intel i5 4460  价格1200
+显卡nvidia geforce gt 720 价格400
+8G内存
+1T硬盘
+主板
+DVD驱动
+机箱
+风扇
+键盘+鼠标
+总价格4249
+
+
+windows 备份
+http://jingyan.baidu.com/album/6b97984d62d5c41ca2b0bf07.html?picindex=1
+
+mvn compile -Dmaven.test.skip=true
+%SCALA_HOME%\bin;
+
+
+杭州照片弄到电脑上
+结婚照
+看电影
+送相机
+
+优甲乐为什么断货 致癌么
+曹操是宦官之后
+文物市场
+
+
+所有相片备份到移动磁盘上，并且设置密码
+
+eclipse fu
+
+
+
+	  /**
+	   * 数据目录和日志目录
+	   */
+    List<String> localDirs = dirsHandler.getLocalDirs();
+    List<String> logDirs = dirsHandler.getLogDirs();
+
+创建数据目录
+/dataDirbase/usercache/$user
+/dataDirbase/usercache/$user/appcache
+/dataDirbase/usercache/$user/appcache/$appId
+/dataDirbase/usercache/$user/appcache/$appId/filecache
+/dataDirbase/usercache/$user/appcache/$appId/$containerId
+/dataDirbase/usercache/$user/filecache
+/dataDirbase/filecache
+/dataDirbase/nmPrivate
+
+创建日志目录
+/logDirsbase/appId
+/logDirsbase/$appId/$containerid
+
+在数据目录下,找到一个具体的路径,/dataDirbase/usercache/$user/appcache/$appId,作为work工作空间
+
+$work/$locId.tokens 存储token信息
+
+
+$containerWorkDir./tmp 容器工作目录下创建临时目录
+$containerWorkDir/container_tokens 存储token信息
+$containerWorkDir/launch_container.sh 存储启动脚本 真正的启动脚本
+$containerWorkDir/default_container_executor_session.sh存储启动脚本,包装脚本
+$containerWorkDir/default_container_executor.sh 存储启动脚本,包装脚本
+     * 生成$containerWorkDir/default_container_executor_session.sh脚本,该脚本的意义是:
+     * 1.执行该脚本的时候,将pid写入pid指定文件下
+     * 2.在本进程内,开启执行launchDst脚本进程,即真正的执行脚本
+
+
+default_container_executor_session包装脚本意义是将pid写入文件中
+$containerWorkDir/default_container_executor.sh包装脚本的意义是将pid的退出码写入到文件中
+
+
+
+ApplicationEventType.INIT_APPLICATION
+  LogHandlerEventType.APPLICATION_STARTED
+     ApplicationEventType.APPLICATION_LOG_HANDLING_INITED
+       LocalizationEventType.INIT_APPLICATION_RESOURCES
+         ApplicationEventType.APPLICATION_INITED
+	   ContainerEventType.INIT_CONTAINER
+	     LocalizationEventType.INIT_CONTAINER_RESOURCES
+	       ResourceEventType.REQUEST

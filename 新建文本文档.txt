@@ -20,11 +20,6 @@ mvn compile -Dmaven.test.skip=true
 杭州照片弄到电脑上
 结婚照
 看电影
-送相机
-
-优甲乐为什么断货 致癌么
-曹操是宦官之后
-文物市场
 
 
 所有相片备份到移动磁盘上，并且设置密码
@@ -81,3 +76,169 @@ ApplicationEventType.INIT_APPLICATION
 	   ContainerEventType.INIT_CONTAINER
 	     LocalizationEventType.INIT_CONTAINER_RESOURCES
 	       ResourceEventType.REQUEST
+
+
+------------------------------
+App流程ApplicationEventType
+1.INIT_APPLICATION 进行app的初始化工作
+a.添加该app的权限信息
+b.发送LogHandlerEventType.APPLICATION_STARTED
+2.APPLICATION_LOG_HANDLING_INITED,//应用的日志初始化完成
+a.发送LocalizationEventType.INIT_APPLICATION_RESOURCES,初始化该应用资源信息
+3.APPLICATION_INITED 表示已经app初始化结束了,开始执行容器了
+a.ContainerEventType.INIT_CONTAINER 循环所有该app的容器,进行容器初始化
+4.APPLICATION_CONTAINER_FINISHED
+ 容器完成的时候触发该函数
+a.app会删除该容器的映射关系
+5.FINISH_APPLICATION 完成该app
+ resourceManager发来的信息,表示该应用完成,该完成可能是正常的完成,也可以应用异常导致的完成
+a.如果此时该app内的容器集合为空,说明没有容器了,因此执行该app的清理工作,返回ApplicationState.APPLICATION_RESOURCES_CLEANINGUP状态
+发送LocalizationEventType.DESTROY_APPLICATION_RESOURCES事件,清理该app的资源
+发送AuxServicesEventType.APPLICATION_STOP事件,说明该app已经结束了,第三方扩展包也要结束
+b.如果此时该app的容器集合有内容,则对每一个容器进行kill处理,返回ApplicationState.FINISHING_CONTAINERS_WAIT状态
+ 执行ContainerEventType.KILL_CONTAINER事件
+6.APPLICATION_CONTAINER_FINISHED,说明该应用的容器也完成了
+在ApplicationState.FINISHING_CONTAINERS_WAIT状态下,可以转换成ApplicationState.FINISHING_CONTAINERS_WAIT或者ApplicationState.APPLICATION_RESOURCES_CLEANINGUP状态
+a.从该app的容器集合中删除这个完成的容器
+b.如果容器集合依然不是空,则还是返回ApplicationState.FINISHING_CONTAINERS_WAIT状态,说明有容器正在被杀死过程中
+c.如果容器集合已经是空了,则返回ApplicationState.APPLICATION_RESOURCES_CLEANINGUP状态
+发送LocalizationEventType.DESTROY_APPLICATION_RESOURCES事件,清理该app的资源
+发送AuxServicesEventType.APPLICATION_STOP事件,说明该app已经结束了,第三方扩展包也要结束
+7.APPLICATION_RESOURCES_CLEANEDUP 清理该app下的所有资源
+ApplicationState.APPLICATION_RESOURCES_CLEANINGUP状态下,遇到该事件,则进行如下处理
+a.发送LogHandlerEventType.APPLICATION_FINISHED事件,清理该app下的日志资源
+8.APPLICATION_LOG_HANDLING_FINISHED 该app资源下的日志资源已经清理完成
+a.该app从context上下文中彻底移除
+b.移除该app的权限西西
+c.删除该app的所有记录,即因此该app彻底结束
+------------------------------
+Container容器的流程ContainerEventType
+1.INIT_CONTAINER 初始化容器
+可以从new状态,转换成LOCALIZING、LOCALIZED、LOCALIZATION_FAILED、DONE四种状态,即下载容器所需要的资源信息
+a.AuxServicesEventType.CONTAINER_INIT 通知第三方容器开始初始化
+b.整理该容器的所有等待下载的资源信息
+  分别根据可见性不同,添加到三个队列中publicRsrcs、privateRsrcs、appRsrcs
+  根据三种不同的可见性,添加到以下集合中
+  Map<LocalResourceVisibility, Collection<LocalResourceRequest>> req = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
+c.发送LocalizationEventType.INIT_CONTAINER_RESOURCES事件,去下载这些资源
+d.如果以上过程中都顺利,则状态为LOCALIZING
+  如果以上过程中有失败,则状态为LOCALIZATION_FAILED
+  如果没有资源下载,则状态为LOCALIZED,同时发送ContainersLauncherEventType.LAUNCH_CONTAINER事件,去启动容器
+2.UPDATE_DIAGNOSTICS_MSG 更新状态信息
+  将信息存储在容器的diagnostics属性中
+3.RESOURCE_LOCALIZED 一个资源下载完成
+  返回的状态是ContainerState.LOCALIZING或者ContainerState.LOCALIZED,如果还有资源没有被下载完成,则继续是ContainerState.LOCALIZING状态
+a.从等待下载资源的队列中删除这个完成的资源
+b.将该资源的path本地路径,与资源的名称组成映射关系,这样方便日后获取该资源与本地路径关联关系
+c.如果等待的资源还存在,则返回ContainerState.LOCALIZING状态
+d.如果没有等待的资源了,则返回ContainerState.LOCALIZED状态.同时触发ContainersLauncherEventType.LAUNCH_CONTAINER事件,启动该容器
+4.RESOURCE_FAILED 加载资源失败
+状态从LOCALIZING,改成LOCALIZATION_FAILED
+a.向容器添加message信息
+b.整理容器的所有资源,按照可见性区分,每一种可见性对应一组资源集合
+Map<LocalResourceVisibility, Collection<LocalResourceRequest>> rsrc = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
+c.发送LocalizationEventType.CLEANUP_CONTAINER_RESOURCES事件,清理以上资源文件
+5.CONTAINER_RESOURCES_CLEANEDUP 清理资源
+  从LOCALIZATION_FAILED状态,接收到该命令后,转化为DONE状态
+a.执行ContainerDoneTransition流程
+6.CONTAINER_LAUNCHED 启动该容器
+ 从LOCALIZED状态,改变成RUNNING状态
+a.根据容器所需要的资源,换算成物理内存和虚拟内存应该使用的量
+b.发送ContainersMonitorEventType.START_MONITORING_CONTAINER事件,开启监控该容器的物理内存和虚拟内存
+c.设置container.wasLaunched  = true;表示该容器已经被启动了
+7.CONTAINER_EXITED_WITH_FAILURE 容器退出,原因是失败了导致的退出
+  从LOCALIZED/RUNNING/KILLING状态,改变成EXITED_WITH_FAILURE状态
+a.设置容器的退出状态码
+b.设置容器的message信息
+c.如果是从RUNNING触发的,则发送ContainersLauncherEventType.CLEANUP_CONTAINER事件,去清理该容器
+d.整理容器的所有资源,按照可见性区分,每一种可见性对应一组资源集合
+Map<LocalResourceVisibility, Collection<LocalResourceRequest>> rsrc = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
+e.发送LocalizationEventType.CLEANUP_CONTAINER_RESOURCES事件,清理以上资源文件
+
+8.CONTAINER_EXITED_WITH_SUCCESS 容器运行成功退出
+ 从RUNNING/KILLING状态,改变成EXITED_WITH_SUCCESS状态
+a.设置容器的退出状态码,该值是0,因为是正常退出
+b.如果状态是RUNNING,则发送ContainersLauncherEventType.CLEANUP_CONTAINER事件,去清理该容器
+c.整理容器的所有资源,按照可见性区分,每一种可见性对应一组资源集合
+Map<LocalResourceVisibility, Collection<LocalResourceRequest>> rsrc = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
+d.发送LocalizationEventType.CLEANUP_CONTAINER_RESOURCES事件,清理以上资源文件
+
+9.CONTAINER_RESOURCES_CLEANEDUP 
+从EXITED_WITH_SUCCESS/EXITED_WITH_FAILURE/KILLING/CONTAINER_CLEANEDUP_AFTER_KILL状态,改变成DONE状态
+a.ContainerDoneTransition流程
+
+10.CONTAINER_KILLED_ON_REQUEST 在请求阶段就被kill掉
+从RUNNING状态,改变成EXITED_WITH_FAILURE状态
+从KILLING状态,改变成CONTAINER_CLEANEDUP_AFTER_KILL状态
+a.向容器添加message信息
+b.设置容器最终的退出状态码
+c.整理容器的所有资源,按照可见性区分,每一种可见性对应一组资源集合
+Map<LocalResourceVisibility, Collection<LocalResourceRequest>> rsrc = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
+d.发送LocalizationEventType.CLEANUP_CONTAINER_RESOURCES事件,清理以上资源文件
+-----------------
+1.ContainerDoneTransition流程,即容器执行结束的流程
+a.记录统计日志
+b.发送ApplicationEventType.APPLICATION_CONTAINER_FINISHED事件,通知应用,该容器已经完成了
+c.发送ContainersMonitorEventType.STOP_MONITORING_CONTAINER事件,通知停止该容器资源的监控
+d.发送LogHandlerEventType.CONTAINER_FINISHED事件,通知日志系统,容器已经完成
+
+
+2.KILL_CONTAINER 将一个容器kill掉
+ 从NEW状态,接收kill命令后,返回ContainerState.DONE状态的过程
+a.设置容器最终的退出状态码
+b.设置容器的message信息
+c.ContainerDoneTransition流程
+d.发送AuxServicesEventType.CONTAINER_STOP,通知第三方该容器结束了
+
+3.KILL_CONTAINER 将一个容器kill掉
+  从LOCALIZING状态,接收到该kill命令后,返回KILLING状态的过程
+a.向容器添加message信息
+b.设置容器最终的退出状态码
+c.整理容器的所有资源,按照可见性区分,每一种可见性对应一组资源集合
+Map<LocalResourceVisibility, Collection<LocalResourceRequest>> rsrc = new HashMap<LocalResourceVisibility,Collection<LocalResourceRequest>>();
+d.发送LocalizationEventType.CLEANUP_CONTAINER_RESOURCES事件,清理以上资源文件
+
+4.KILL_CONTAINER 将一个容器kill掉
+  从LOCALIZED/RUNNING状态,接收到该kill命令后,返回KILLING状态的过程
+a.向容器添加message信息
+b.设置容器最终的退出状态码
+c.发送ContainersLauncherEventType.CLEANUP_CONTAINER事件,启动清理该容器的任务
+
+---------------------
+LocalizedResource 针对一个资源进行下载处理的逻辑,以及该资源被哪些容器使用
+
+处理ResourceEventType逻辑
+属性:
+  volatile Path localPath;//本地存储路径
+  volatile long size = -1;//下载的文件大小
+  final LocalResourceRequest rsrc;//待要下载的资源
+
+  final Queue<ContainerId> ref; // Queue of containers using this localized
+                                // resource该资源被多少个容器引用需要
+
+1.REQUEST事件
+从init/DOWNLOADING状态,转换为DOWNLOADING,即真正去下载该资源
+a.添加该资源被一个容器引用了
+b.发送LocalizerEventType.REQUEST_RESOURCE_LOCALIZATION事件,去真正下载该资源
+2.LOCALIZED事件,下载完成
+从DOWNLOADING状态,转换成LOCALIZED状态
+a.设置该资源的本地路径以及该资源的大小
+b.通过循环所有引用该资源的容器,每一个循环调用以下事件ContainerEventType.RESOURCE_LOCALIZED,即通知该容器需要的资源已经下载完成
+3.LOCALIZATION_FAILED事件,即下载失败
+从DOWNLOADING状态,转换成FAILED状态
+a.通过循环所有引用该资源的容器,每一个循环调用以下事件ContainerEventType.RESOURCE_FAILED,即通知该容器需要的资源已经下载失败
+4.REQUEST事件
+从LOCALIZED状态,转换成LOCALIZED状态,说明该请求到达的时候,该资源已经下载过了
+a.添加该资源被一个容器引用了
+b.触发ContainerEventType.RESOURCE_LOCALIZED事件,即通知该容器需要的资源已经下载完成
+5.RELEASE事件,为该资源释放一个引用的容器
+从DOWNLOADING/LOCALIZED状态,转换成DOWNLOADING/LOCALIZED状态
+a.从该资源引用的容器集合中,移除该容器
+6.RECOVERED事件,还原一个资源事件
+从Init状态,转换成LOCALIZED状态
+a.设置该资源的本地路径以及该资源的大小
+---------------------
+
+---------------------
+
+---------------------

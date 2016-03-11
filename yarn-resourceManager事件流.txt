@@ -1,0 +1,122 @@
+RMNodeImpl流程RMNodeEventType
+1.STARTED 对Node节点进行注册,使resourceManager知道有该node存在
+状态从NEW变成RUNNING状态
+a.判断该node所在host是否在集群管理的不活跃节点集合中
+b.a如果存在在不活跃集合中,说明该Node以前注册过,现在又活跃了
+  因此从该集合中删除该host映射
+c.a如果发现该host没有在不活跃集合中,则循环该node上所有的容器,如果该node的容器是RUNNING,则向全局变量集合中添加正在运行的容器rmNode.launchedContainers.add(container.getContainerId());
+d.循环该node节点上所有的正在活跃的app集合
+  先判断该appId在resourceManager中存在,如果不存在,则说明也不做,打印一个警告日志
+  如果存在,则发送RMAppEventType.APP_RUNNING_ON_NODE事件,说明该app在某个node节点上运行了
+e.发送事件SchedulerEventType.NODE_ADDED,让调度器添加一个该节点
+f.发送事件NodesListManagerEventType.NODE_USABLE
+
+2.RESOURCE_UPDATE,说明该Node节点的总资源有变化,即给该节点增加了内存了,这个触发的机会比较少
+状态从NEW/REBOOTED/DECOMMISSIONED/LOST/UNHEALTHY还是到NEW/REBOOTED/DECOMMISSIONED/LOST/UNHEALTHY状态,即状态不变化
+a.直接设置该node的总资源即可rmNode.totalCapability = resourceOption.getResource();
+  总资源,即该node为集群提供的资源,包括CPU和内存
+
+3.RESOURCE_UPDATE,说明该Node节点的总资源有变化,即给该节点增加了内存了,这个触发的机会比较少
+状态才RUNNING改变成RUNNING状态,说明节点此时是运行的时候更改了节点的资源情况
+a.直接设置该node的总资源即可rmNode.totalCapability = resourceOption.getResource();
+  总资源,即该node为集群提供的资源,包括CPU和内存
+b.发送SchedulerEventType.NODE_RESOURCE_UPDATE事件,调度器收到该事件后,会对整体调度器资源进行相关更改,即先删除,后添加。
+
+4.STATUS_UPDATE,更新该node的状态情况,比如健康情况
+状态从RUNNING转换到RUNNING/UNHEALTHY,即如果不健康的话,则状态最后为不健康状态
+该事件是Node节点发送心跳给yarn,因此是该类的主要函数,Node节点会提交以下信息:
+  private final NodeHealthStatus nodeHealthStatus;//记录上一次该远程节点的健康检查统计信息
+  private final List<ContainerStatus> containersCollection;目前正在运行的容器状态
+  private final NodeHeartbeatResponse latestResponse;//针对该节点的心跳回复统计信息
+  private final List<ApplicationId> keepAliveAppIds;应该被关闭的应用.但是此时还存在,这样的一个集合
+a.设置本地变量latestResponse,为上一次回复的内容信息
+b.根据node节点的监控检查信息,设置属性检查信息、最后检查时间
+c.判断是否node节点健康检查为不健康,如果不健康,则返回UNHEALTHY状态,并且执行以下流程
+  清空nodeUpdateQueue队列信息
+  发送SchedulerEventType.NODE_REMOVED事件,去通知调度器移除该node节点
+  发送NodesListManagerEventType.NODE_UNUSABLE事件
+d.如果健康检查是没问题的,还是健康
+ 循环所有在该node上活着的容器
+ 如果该容器在resourceManager上已经是在rmNode.containersToClean集合中了,也就是说该容器要去被清理的了,因此不管该容器在node上运行如何了
+ 如果该容器所在的app在resourceManager上已经完成了,因此不管该容器在node上运行如何了
+ 如果该容器在node上的状态是ContainerState.RUNNING,并且rmNode.launchedContainers正在运行的容器又不包含该容器,则说明是新增加的运行容器,
+   添加到rmNode.launchedContainers中,也添加到newlyLaunchedContainers中 
+ 如果该容器在node上的状态不是ContainerState.RUNNING,则说明该容器已经完成了,则删除rmNode.launchedContainers.remove(containerId);
+   添加到完成集合中completedContainers.add(remoteContainer);
+e.将新增加的容器和新完成的容器添加到集合中
+  rmNode.nodeUpdateQueue.add(new UpdatedContainerInfo(newlyLaunchedContainers, completedContainers));
+f.发送SchedulerEventType.NODE_UPDATE事件,通知调度器,一些节点的容器有变更.即远程节点有新容器被启动或者老容器被完成
+g.处理keepAliveAppIds,这部分可以忽略,日后看到安全机制的时候在来详细看。
+
+5.STATUS_UPDATE,更新该node的状态情况,比如健康情况
+状态从UNHEALTHY转换到RUNNING/UNHEALTHY
+a.设置本地变量latestResponse,为上一次回复的内容信息
+b.根据node节点的监控检查信息,设置属性检查信息、最后检查时间
+c.判断是否node节点健康检查为健康,如果不健康,则返回UNHEALTHY状态
+d.如果是健康,则执行以下流程:
+ 发送SchedulerEventType.NODE_ADDED事件,让调度器添加该节点
+ 发送NodesListManagerEventType.NODE_USABLE事件 目的是通知节点已经可以使用了
+
+6.DECOMMISSION,使该节点不可用
+状态从RUNNING/UNHEALTHY转换到DECOMMISSIONED
+调用DeactivateNodeTransition方法
+
+7.EXPIRE
+状态从RUNNING/UNHEALTHY转换到LOST
+调用DeactivateNodeTransition方法
+
+6.REBOOTING
+状态从RUNNING/UNHEALTHY转换到REBOOTED
+调用DeactivateNodeTransition方法
+
+8.CLEANUP_APP 说明一个app已经完成了
+状态从RUNNING/UNHEALTHY转换到RUNNING/UNHEALTHY
+a.rmNode.finishedApplications.add(((RMNodeCleanAppEvent) event).getAppId());
+
+9.CLEANUP_CONTAINER 说明一个容器完成了,要去清理该容器
+状态从RUNNING/UNHEALTHY转换到RUNNING/UNHEALTHY
+a.rmNode.containersToClean.add(((RMNodeCleanContainerEvent) event).getContainerId());
+
+10.FINISHED_CONTAINERS_PULLED_BY_AM,表示通过AM 完成了容器,需要被移除
+状态从DECOMMISSIONED/UNHEALTHY/LOST/RUNNING转换到DECOMMISSIONED/UNHEALTHY/LOST/RUNNING
+a.rmNode.containersToBeRemovedFromNM.addAll(((RMNodeFinishedContainersPulledByAMEvent) event).getContainers());
+
+11.RECONNECTED node节点重新连接resourceManager
+状态从RUNNING/UNHEALTHY转换到RUNNING/UNHEALTHY
+可忽略实现
+
+12.updateNodeHeartbeatResponseForCleanup(NodeHeartbeatResponse response)
+向response中添加信息,发送给node节点
+添加的信息包括
+      response.addAllContainersToCleanup(new ArrayList<ContainerId>(this.containersToClean));要去清理的容器
+      response.addAllApplicationsToCleanup(this.finishedApplications);已经完成的应用
+      response.addContainersToBeRemovedFromNM(new ArrayList<ContainerId>(this.containersToBeRemovedFromNM));
+清空本地信息
+      this.containersToClean.clear();
+      this.finishedApplications.clear();
+      this.containersToBeRemovedFromNM.clear();
+
+13.List<UpdatedContainerInfo> pullContainerUpdates()
+获取所有的远程节点刚刚新启动的容器以及完成的容器
+    while(nodeUpdateQueue.peek() != null){
+      latestContainerInfoList.add(nodeUpdateQueue.poll());
+    }
+    this.nextHeartBeat = true;
+
+
+DeactivateNodeTransition方法  
+a.清空rmNode.nodeUpdateQueue.clear();
+b.如果目前该节点的状态不是NodeState.UNHEALTHY,说明该节点还没有被调度器移除,
+  因此发送SchedulerEventType.NODE_REMOVED事件,通知调度器移除该节点
+c.发送NodesListManagerEventType.NODE_UNUSABLE事件
+d.从集群的节点集合中,将该节点删除
+e.该节点虽然删除了,但是为了体现在该节点曾经被使用过,因此将其添加到上下文不活跃节点集合中,rmNode.context.getInactiveRMNodes().put(rmNode.nodeId.getHost(), rmNode);
+
+-------------------------------
+RMAppImpl流程RMAppEventType
+
+
+
+resourceManager
+
+

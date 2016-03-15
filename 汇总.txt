@@ -1,0 +1,16 @@
+resourceManager
+事件
+1.RMNodeEventType 关注Node流程的事件
+2.RMAppEventType 关注APP流程的事件
+3.RMAppAttemptEventType 关注尝试任务的流程事件
+4.RMContainerEventType 关注容器运行的流程的事件
+5.AMLauncherEventType 关注AM容器的启动和清理的流程的事件
+6.WritingHistoryEventType 关于历史日志的流程的事件
+7.NodesListManagerEventType 监听Node节点是否可用的流程的事件
+
+
+服务
+1.NodesListManager
+2.NMLivelinessMonitor
+3.AMLivelinessMonitor
+

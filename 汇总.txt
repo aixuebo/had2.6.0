@@ -14,3 +14,6 @@ resourceManager
 2.NMLivelinessMonitor
 3.AMLivelinessMonitor
 
+
+单词:
+HeadRoom 净空,表示上面还有多少空间可以使用

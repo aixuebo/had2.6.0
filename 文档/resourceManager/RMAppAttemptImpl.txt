@@ -1,0 +1,253 @@
+RMAppAttemptImpl流程RMAppAttemptEventType
+1.START 开启一个app尝试任务 
+状态从NEW变成SUBMITTED状态,表示已经提交给队列了
+a.appAttempt.startTime = System.currentTimeMillis();设置尝试任务的开始时间
+b.appAttempt.masterService.registerAppAttempt(appAttempt.applicationAttemptId);向AM服务注册,即告诉AM服务,有了一个这样的尝试任务
+c.appAttempt.clientTokenMasterKey = appAttempt.rmContext.getClientToAMTokenSecretManager().createMasterKey创建token
+d.发送事件SchedulerEventType.APP_ATTEMPT_ADDED,表示创建一个app的尝试任务,提交到队列中来了
+
+2.ATTEMPT_ADDED 当调度器接受了该尝试任务后产生该事件,并且向调度器提交一个容器,该容器是AM所在的容器
+状态从SUBMITTED变成LAUNCHED_UNMANAGED_SAVING/SCHEDULED状态,表示队列已经接受了该尝试任务
+a.subCtx.getUnmanagedAM()是fasle表示AM由任意一个node去执行
+b.重新设置AM所需要的容器资源,即设置容器数量为1,容器优先级是AM的优先级、容器所需要的资源在什么节点上去运行,设置为*
+c.去队列中申请AM的资源,即为该尝试任务ID申请一个容器,所需要资源是amReq,释放容器是空集合,没有黑名单因此是null
+   Allocation amContainerAllocation =
+            appAttempt.scheduler.allocate(appAttempt.applicationAttemptId,Collections.singletonList(appAttempt.amReq),new ArrayList, null, null);
+d.返回SCHEDULED状态
+e.如果subCtx.getUnmanagedAM()是true,则返回LAUNCHED_UNMANAGED_SAVING,表示在job提交的节点上运行AM
+
+3.CONTAINER_ALLOCATED 表示一个容器被分配到了
+状态从SUBMITTED变成ALLOCATED_SAVING/SCHEDULED状态,表示队列已经接受了该尝试任务
+a.Allocation amContainerAllocation = appAttempt.scheduler.allocate(appAttempt.applicationAttemptId,new List, new List, null,null);
+  这里必须有至少一个容器被分配了,因为一个CONTAINER_ALLOCATED事件被发射,是RM容器被构造后产生的,所以一定有至少一个容器.
+  注意,yarn调度器的allocate方法,不保证一定能抓取到资源,可能有很多原因导致抓取不到资源.
+  例如DNS不可用原因,容器token不能产生,因此我们要返回以前的状态,即SCHEDULED状态,保持重新尝试,直到am容器被抓取到
+b.如果调度器没有为AM分配到容器
+  单独启动一个线程,定期发送RMAppAttemptEventType.CONTAINER_ALLOCATED事件,向队列申请容器资源
+  返回RMAppAttemptState.SCHEDULED;状态
+c.如果分配到了容器 
+  appAttempt.setMasterContainer(amContainerAllocation.getContainers().get(0));设置第一个容器为AM容器
+  RMContainerImpl rmMasterContainer = (RMContainerImpl)appAttempt.scheduler.getRMContainer(appAttempt.getMasterContainer().getId());
+  通过调度器获取到该AM容器的实例
+  rmMasterContainer.setAMContainer(true);//设置该容器是AM容器
+  appAttempt.getSubmissionContext().setResource(appAttempt.getMasterContainer().getResource());
+  返回RMAppAttemptState.ALLOCATED_SAVING状态
+          
+
+4.ATTEMPT_NEW_SAVED AM信息已经保存完成
+状态从ALLOCATED_SAVING变成ALLOCATED状态,表示AM信息已经保存完成
+a.发送AMLauncherEventType.LAUNCH事件,启动该AM容器
+
+5.LAUNCHED AM已经启动了
+状态从ALLOCATED变成LAUNCHED状态
+a.rmContext.getAMLivelinessMonitor().register(getAppAttemptId()); 注册去监控AM
+b.注册token信息
+
+6.REGISTERED 表示AM完全注册到RM了
+状态从LAUNCHED变成RUNNING状态
+a.设置AM所对应的host、rpc端口、原始url、代理url
+b.向app发送事件RMAppEventType.ATTEMPT_REGISTERED,表示该尝试任务的一个AM已经在某个节点上产生了
+c.记录历史信息
+  appAttempt.rmContext.getRMApplicationHistoryWriter().applicationAttemptStarted(appAttempt);
+
+7.ATTEMPT_UPDATE_SAVED FINAL_SAVING状态最终到其他状态的过程,是最后一步
+状态从FINAL_SAVING转换到FINISHING/FINISHED/FAILED/KILLED
+a.执行transitionTodo的transition方法,参数appAttempt, causeEvent
+b.返回appAttempt.targetedFinalState状态
+
+8.KILL  杀死该尝试任务
+状态从NEW/SUBMITTED/ALLOCATED_SAVING/SCHEDULED/LAUNCHED_UNMANAGED_SAVING转换到FINAL_SAVING
+new FinalSavingTransition(new BaseFinalTransition(RMAppAttemptState.KILLED), RMAppAttemptState.KILLED))
+
+9.KILL  杀死该尝试任务
+状态从ALLOCATED转换到FINAL_SAVING
+new FinalSavingTransition(new KillAllocatedAMTransition(), RMAppAttemptState.KILLED))
+a.BaseFinalTransition
+b.发送事件AMLauncherEventType.CLEANUP,删除该AM的进程
+
+10.KILL  杀死该尝试任务
+状态从LAUNCHED/RUNNING转换到FINAL_SAVING
+new FinalSavingTransition(new FinalTransition(RMAppAttemptState.KILLED), RMAppAttemptState.KILLED))
+a.appAttempt.progress = 1.0f; 设置百分比
+b.BaseFinalTransition
+c.appAttempt.rmContext.getAMLivelinessMonitor().unregister(appAttempt.getAppAttemptId()); 取消对该尝试任务的监控
+d.appAttempt.rmContext.getAMFinishingMonitor().unregister(appAttempt.getAppAttemptId());取消监控
+e.发送事件AMLauncherEventType.CLEANUP,删除该AM的进程
+
+11.CONTAINER_FINISHED 容器完成 因为此时的状态来看,AM还没运行起来,因此该完成的容器就是AM容器
+状态从SCHEDULED/ALLOCATED_SAVING/ALLOCATED转换到FINAL_SAVING
+new FinalSavingTransition(new AMContainerCrashedBeforeRunningTransition(),RMAppAttemptState.FAILED))
+a.appAttempt.rmContext.getAMLivelinessMonitor().unregister(appAttempt.getAppAttemptId());
+b.appAttempt.setAMContainerCrashedDiagnosticsAndExitStatus(finishEvent);
+c.BaseFinalTransition
+
+12.CONTAINER_FINISHED AM容器完成  因为此时的状态来看,AM还没运行起来,因此该完成的容器就是AM容器
+状态从LAUNCHED转换到LAUNCHED/FINAL_SAVING
+new ContainerFinishedTransition(new AMContainerCrashedBeforeRunningTransition(),RMAppAttemptState.LAUNCHED))
+a.appAttempt.rmContext.getAMLivelinessMonitor().unregister(appAttempt.getAppAttemptId());
+b.appAttempt.setAMContainerCrashedDiagnosticsAndExitStatus(finishEvent);
+c.BaseFinalTransition
+
+13.CONTAINER_FINISHED 一个容器完成
+状态从FINISHED/KILLED/FAILED转换到FINISHED/KILLED/FAILED
+new ContainerFinishedAtFinalStateTransition())
+a.获取该容器在哪个节点完成的,以及完成时候容器的状态。
+  将两者添加到全局变量justFinishedContainers中
+//该尝试任务的所有容器,在哪些节点上完成的,key是节点ID,value是该节点上完成的容器状态集合
+  private ConcurrentMap<NodeId, List<ContainerStatus>> justFinishedContainers = new ConcurrentHashMap<NodeId, List<ContainerStatus>>();
+
+14.CONTAINER_FINISHED 一个容器完成,此时状态是FINISHING,说明所有容器已经完成了,该容器可能是AM容器完成,也可能是其他容器完成
+状态从FINISHING转换到FINISHING/FINISHED
+new AMFinishingContainerFinishedTransition()
+a.获取该完成的容器ID
+b.判断该完成的容器ID与AM容器ID是否相同,如果相同,
+  则执行FinalTransition方法,
+  sendAMContainerToNM方法
+  返回FINISHED状态
+c.如果完成的容器不是AM容器,
+  则获取该容器在哪个节点完成的,以及完成时候容器的状态。
+  将两者添加到全局变量justFinishedContainers中
+  返回FINISHING状态
+
+15.CONTAINER_FINISHED 一个容器完成 正常的逻辑运行过程中,一个容器完成时候调用该方法
+状态从RUNNING转换到RUNNING/FINAL_SAVING
+new ContainerFinishedTransition(new AMContainerCrashedAtRunningTransition(),RMAppAttemptState.RUNNING)
+a.获取完成的容器ID与完成容器的状态
+b.判断该完成的容器ID与AM容器ID是否相同,如果相同,
+  sendAMContainerToNM方法
+  appAttempt.rememberTargetTransitionsAndStoreState(event,transitionToDo, RMAppAttemptState.FAILED, RMAppAttemptState.FAILED);记录日志,最后转换成FAILED状态
+  返回FINAL_SAVING状态
+
+  记录完日志后,要调用AMContainerCrashedAtRunningTransition方法,最终返回FAILED状态.AMContainerCrashedAtRunningTransition的流程
+  因为AM突然crash了,因此向尝试任务输入message,记录AM容器ID完成了,退出状态是xxx,更详细的输出的url是xxx,请点击进去看详细信息
+  设置AM的退出状态amContainerExitStatus为status.getExitStatus();
+  调用FinalTransition方法,返回状态为FAILED.
+
+c.如果完成的容器不是AM容器,
+  则获取该容器在哪个节点完成的,以及完成时候容器的状态。
+  将两者添加到全局变量justFinishedContainers中
+  返回RUNNING状态
+
+16.CONTAINER_FINISHED 一个容器完成
+状态从FINAL_SAVING转换到FINAL_SAVING
+new ContainerFinishedAtFinalSavingTransition()
+a.获取完成的容器ID与完成容器的状态
+b.判断该完成的容器ID与AM容器ID是否相同,如果相同,
+  sendAMContainerToNM方法
+c.如果完成的容器不是AM容器,
+  则获取该容器在哪个节点完成的,以及完成时候容器的状态。
+  将两者添加到全局变量justFinishedContainers中
+d.返回FINAL_SAVING状态
+
+17.REGISTERED AM成功注册到RM上触发的事件,表示非法状态,即状态之间的转换是不应该发生的,因此属于非法状态转换
+状态从NEW/SUBMITTED/LAUNCHED_UNMANAGED_SAVING 转换成FINAL_SAVING  最终转换成FAILED
+new FinalSavingTransition(new UnexpectedAMRegisteredTransition(), RMAppAttemptState.FAILED))
+a.assert appAttempt.submissionContext.getUnmanagedAM();//这种方式一定发生在AM就是job提交的节点上运行的,因此不需要分配ALLOCATED_SAVING和ALLOCATED两个状态
+  要断言,这种情况一定是AM在job提交的节点上规定的,否则不会有这种可能性
+b.设置尝试任务的message:Unmanaged的AM,必须是要AM尝试任务到达LAUNCHED状态之后,才能被注册的
+c.BaseFinalTransition流程,最终返回FAILED状态。
+
+18.UNREGISTERED 由ApplicationMasterService触发的,当一个AM失效了,就会触发该函数
+状态从RUNNING 转换成FINAL_SAVING/FINISHED
+a.appAttempt.getSubmissionContext().getUnmanagedAM() 说明AM就是job所在节点
+ 则说明没有真正的AM容器,因此跳过FINISHING状态,直接到FINISHED状态即可
+ appAttempt.updateInfoOnAMUnregister(event);//当AM被ApplicationMasterService触发,该AM已经失效时,会设置该尝试任务的全部信息,比如进度就是100%、最终状态等
+ 调用FinalTransition方法
+ 返回FINISHED状态
+b.appAttempt.rememberTargetTransitionsAndStoreState(event,new FinalStateSavedAfterAMUnregisterTransition(),RMAppAttemptState.FINISHING, RMAppAttemptState.FINISHED);
+  FinalStateSavedAfterAMUnregisterTransition的流程如下:
+  appAttempt.rmContext.getAMLivelinessMonitor().unregister(appAttempt.applicationAttemptId);
+  appAttempt.rmContext.getAMFinishingMonitor().register(appAttempt.applicationAttemptId);
+  appAttempt.updateInfoOnAMUnregister(event);//当AM被ApplicationMasterService触发,该AM已经失效时,会设置该尝试任务的全部信息,比如进度就是100%、最终状态等
+  最终返回FINISHED状态
+c.发送事件RMAppEventType.ATTEMPT_UNREGISTERED,通知app,该app的一个尝试任务被失效了
+d.返回FINAL_SAVING状态
+
+19.STATUS_UPDATE 状态更新
+状态从RUNNING转换成RUNNING
+a.appAttempt.progress = statusUpdateEvent.getProgress();更新进度
+b.appAttempt.rmContext.getAMLivelinessMonitor().receivedPing(statusUpdateEvent.getApplicationAttemptId());
+  更新说明该app尝试任务还活着
+
+20.LAUNCH_FAILED 启动失败
+状态从ALLOCATED转换成FINAL_SAVING 最终到FAILED
+new FinalSavingTransition(new LaunchFailedTransition(),RMAppAttemptState.FAILED)
+a.设置尝试任务的message,失败原因
+b.调用BaseFinalTransition方法
+
+21.ATTEMPT_NEW_SAVED 表示AM在job启动的节点上执行
+状态从LAUNCHED_UNMANAGED_SAVING转换成LAUNCHED
+new UnmanagedAMAttemptSavedTransition()
+a.创建token
+  appAttempt.amrmToken = appAttempt.rmContext.getAMRMTokenSecretManager().createAndGetAMRMToken(appAttempt.applicationAttemptId);
+b.rmContext.getAMLivelinessMonitor().register(getAppAttemptId());
+c.注册token
+  appAttempt.rmContext.getClientToAMTokenSecretManager().registerApplication(appAttempt.getAppAttemptId(),appAttempt.getClientTokenMasterKey());
+
+22.EXPIRE 过期 AMLivelinessMonitor类触发该事件
+状态从LAUNCHED/RUNNING转换成FINAL_SAVING
+new FinalSavingTransition(ExpiredTransition,RMAppAttemptState.FAILED))
+a.设置尝试任务的message信息
+b.FinalTransition方法
+
+23.EXPIRE 过期 AMLivelinessMonitor类触发该事件
+状态从FINAL_SAVING转换成FINAL_SAVING
+appAttempt.updateInfoOnAMUnregister(event);//当AM被ApplicationMasterService触发,该AM已经失效时,会设置该尝试任务的全部信息,比如进度就是100%、最终状态等
+
+24.EXPIRE 过期 AMLivelinessMonitor类触发该事件
+状态从FINISHING转换成FINISHED
+调用FinalTransition方法
+
+
+--------------------------
+1.FinalSavingTransition
+中间结果记录到日志中,状态改成FINAL_SAVING
+
+2.BaseFinalTransition 最终一步处理
+a.appAttempt.masterService.unregisterAttempt(appAttemptId); 向AM服务取消该AM
+b.根据尝试任务的最终状态不同,创建不同的事件,通知对应的app
+ 如果最终状态是FINISHED,发送RMAppEventType.ATTEMPT_FINISHED事件
+ 如果最终状态是KILLED,发送RMAppEventType.ATTEMPT_KILLED事件
+ 如果最终状态是FAILED,发送RMAppEventType.ATTEMPT_FAILED事件
+c.如果最终状态是KILLED或者FAILED,要设置
+          appAttempt.setTrackingUrlToRMAppPage();//设置app的网页url
+          appAttempt.invalidateAMHostAndPort();//重置AM所在的host和rpc的port
+d.发送事件SchedulerEventType.APP_ATTEMPT_REMOVED,从队列中删除该尝试任务的调度
+e.appAttempt.removeCredentials(appAttempt); 删除token
+f.appAttempt.rmContext.getRMApplicationHistoryWriter().applicationAttemptFinished(appAttempt, finalAttemptState);
+  写日志文件
+g.appAttempt.rmContext.getSystemMetricsPublisher() 处理token
+
+
+3.sendAMContainerToNM 表示AM容器完成了
+a.将完成的am容器添加到containerFinishedEvent集合中
+b.调用sendFinishedContainersToNM方法
+
+4.sendFinishedContainersToNM  向Node节点发送该app哪些容器已经完成了
+a.循环该尝试任务在所有node上完成的容器集合
+b.将每一个node上完成的容器集合,发送事件给对应的node节点,事件为RMNodeEventType.FINISHED_CONTAINERS_PULLED_BY_AM
+  即RMAppAttempt尝试任务回复给Node,说该尝试任务哪些容器已经完成了
+
+5.pullJustFinishedContainers
+a.调用sendFinishedContainersToNM方法,向对应的node节点发送该app已经完成了哪些容器
+b.将justFinishedContainers 刚刚完成的容器 转移到finishedContainersSentToAM中,并且清空justFinishedContainers的数据
+
+6.ApplicationAttemptReport createApplicationAttemptReport() 创建针对该app尝试任务的状态信息,描述该尝试任务的对象
+    report.setApplicationAttemptId(applicationAttemptId);//尝试任务ID
+    report.setHost(host);//该尝试任务在哪个host上执行的AM
+    report.setRpcPort(rpcPort);//AM所对应的rpc端口
+    report.setTrackingUrl(url);//AM对外的url
+    report.setOriginalTrackingUrl(oUrl);//AM对外的url
+    report.setDiagnostics(diagnostics);//该尝试任务的一些message信息
+    report.setYarnApplicationAttemptState(state);//该尝试任务当前的状态
+    report.setAMContainerId(amContainerId);//该尝试任务的AM对应的容器ID
+
+7.public ApplicationResourceUsageReport getApplicationResourceUsageReport() 从调度器上获取该尝试任务消耗了多少队列资源
+
+
+未完成的:
+
+      .addTransition( RMAppAttemptState.NEW,
+          EnumSet.of(RMAppAttemptState.FINISHED, RMAppAttemptState.KILLED,
+            RMAppAttemptState.FAILED, RMAppAttemptState.LAUNCHED),
+          RMAppAttemptEventType.RECOVER, new AttemptRecoveredTransition())

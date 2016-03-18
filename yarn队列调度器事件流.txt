@@ -1,0 +1,53 @@
+FiCaSchedulerApp extends SchedulerApplicationAttempt 代表一个app的尝试任务,即一个AM
+
+
+
+
+RMAppImpl流程RMAppEventType
+1.NODE_UPDATE 一个Node节点更新,由NODE_USABLE和NODE_UNUSABLE之间产生了替换 
+状态从NEW/RUNNING/NEW_SAVING/SUBMITTED/ACCEPTED变成NEW/RUNNING/NEW_SAVING/SUBMITTED/ACCEPTED状态
+a.updatedNodes.add(node); 将变更的node存储到集合中
+
+2.START 开启一个app
+状态从NEW变成NEW_SAVING状态
+a.保存appId日志,说明该app已经提交到RM中了,用于日后恢复数据使用
+app.rmContext.getStateStore().storeNewApplication(app);
+
+3.APP_NEW_SAVED 一个app提交到调度器中
+状态从NEW_SAVING变成SUBMITTED状态
+a.发送SchedulerEventType.APP_ADDED事件到调度器中。即使调度器去启动该app
+
+
+一、RMAppImpl接收START事件
+状态从NEW变成NEW_SAVING状态
+ app.rmContext.getStateStore().storeNewApplication(app);
+
+二、RMAppImpl接收APP_NEW_SAVED事件,说明app保存完成
+状态从NEW_SAVING变成SUBMITTED状态
+发送SchedulerEventType.APP_ADDED事件到调度器中
+
+三、调度器接收SchedulerEventType.APP_ADDED事件
+1.创建SchedulerApplication<FiCaSchedulerApp>对象
+2.在队列中缓存映射关系applications.put(applicationId, application);
+3.发送RMAppEventType.APP_ACCEPTED事件
+
+四、RMAppEventType.APP_ACCEPTED 接收事件
+状态从SUBMITTED变成ACCEPTED状态
+a.createNewAttempt;创建一个app尝试任务RMAppAttemptImpl
+b.将尝试任务的ID:maxAppAttempts,累加1
+c.将尝试任务添加到内存映射中 attempts.put(appAttemptId, attempt);
+d.设置当前尝试任务为本次创建的尝试任务currentAttempt = attempt;
+e.发送事件RMAppAttemptEventType.START,使尝试任务开始运行
+
+五、RMAppAttemptEventType.START 接收事件
+
+
+
+
+----------------------
+RMContainerImpl流程RMContainerEventType
+
+1.START 开启一个容器 
+状态从NEW/RESERVED变成ALLOCATED状态,表示容器已经准备好了
+a.发送RMAppAttemptEventType.CONTAINER_ALLOCATED事件,通知app的尝试任务,该容器已经准备好了
+

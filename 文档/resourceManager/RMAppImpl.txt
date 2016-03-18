@@ -1,0 +1,115 @@
+RMAppImpl流程RMAppEventType
+1.NODE_UPDATE 一个Node节点更新,由NODE_USABLE和NODE_UNUSABLE之间产生了替换 
+状态从NEW/RUNNING/NEW_SAVING/SUBMITTED/ACCEPTED变成NEW/RUNNING/NEW_SAVING/SUBMITTED/ACCEPTED状态
+a.updatedNodes.add(node); 将变更的node存储到集合中
+
+2.START 开启一个app
+状态从NEW变成NEW_SAVING状态
+a.保存appId日志,说明该app已经提交到RM中了,用于日后恢复数据使用
+app.rmContext.getStateStore().storeNewApplication(app);
+
+3.APP_NEW_SAVED 一个app提交到调度器中
+状态从NEW_SAVING变成SUBMITTED状态
+a.发送SchedulerEventType.APP_ADDED事件到调度器中。即使调度器去启动该app
+
+4.APP_ACCEPTED 表示调度器开始接受了该app
+状态从SUBMITTED变成ACCEPTED状态
+a.createNewAttempt;创建一个app尝试任务RMAppAttemptImpl
+b.将尝试任务的ID:maxAppAttempts,累加1
+c.将尝试任务添加到内存映射中 attempts.put(appAttemptId, attempt);
+d.设置当前尝试任务为本次创建的尝试任务currentAttempt = attempt;
+e.发送事件RMAppAttemptEventType.START,使尝试任务开始运行
+
+5.ATTEMPT_REGISTERED 表示尝试任务已经开始运行了,因此该app状态变成运行中状态
+状态从ACCEPTED变成RUNNING状态
+
+6.APP_RUNNING_ON_NODE 通知该app在某个节点上运行了容器
+状态从ACCEPTED/RUNNING/FINISHING/FINISHED/FINAL_SAVING/FAILED/KILLING/KILLED变成ACCEPTED/RUNNING/FINISHING/FINISHED/FINAL_SAVING/FAILED/KILLING/KILLED状态
+a.判断该app在yarn上的状态是否完成了,FAILED/KILLED/FINISHED表示该app已经完成了
+b.如果该app已经完成了,则发送事件RMNodeEventType.CLEANUP_APP,使该app所在节点去进行资源清理,该节点不在需要运行该app的资源了
+c.如果该app没有完成,则app.ranNodes.add(nodeAddedEvent.getNodeId());
+  设置该app运行在哪些node节点上,即哪些node节点上运行属于该app的容器
+
+7.MOVE 更改该app所在的队列,当一个队列很繁忙的时候,可以通过命令更改他的队列.使其快速运行起来
+状态从SUBMITTED/RUNNING/ACCEPTED/NEW_SAVING变成SUBMITTED/RUNNING/ACCEPTED/NEW_SAVING状态
+a.app.queue = app.scheduler.moveApplication(app.applicationId,moveEvent.getTargetQueue());
+  通过调度器,去做队列转换,并且将更改后的队列存储在app内部中
+b.如果更改过程中出现异常,则存储该异常信息
+   moveEvent.getResult().setException(ex);
+
+8.APP_REJECTED app被拒绝了
+状态从NEW/NEW_SAVING/SUBMITTED变成FINAL_SAVING状态
+new FinalSavingTransition(new AppRejectedTransition(),RMAppState.FAILED))
+  
+9.KILL 杀死这个app,而不是某一个尝试任务
+状态从NEW变成KILLED状态
+a.执行AppKilledTransition逻辑即可,因为任务还没有被真正启动.因此可以直接被杀死
+
+10.KILL 杀死这个app,而不是某一个尝试任务
+状态从NEW_SAVING/SUBMITTED/KILLING变成KILLED状态
+new FinalSavingTransition(new AppKilledTransition(), RMAppState.KILLED))
+因为app已经启动了,因此多了一个记录日志的过程
+
+11.KILL 杀死这个app,而不是某一个尝试任务
+状态从ACCEPTED/RUNNING变成KILLING状态
+a.app.stateBeforeKilling = app.getState(); 记录kill过程前的状态
+b.发送事件RMAppAttemptEventType.KILL,即对当前的尝试任务发送kill命令
+
+
+12.ATTEMPT_FINISHED 尝试去完成该app,而不是某一个尝试任务
+状态从RUNNING/FINISHING/KILLING变成FINISHED状态
+调用AppFinishedTransition方法
+
+13.APP_UPDATE_SAVED 彻底将app完成
+状态从FINAL_SAVING变成KILLED/FAILED/FINISHING/FINISHED状态
+a.调用transitionTodo.transition(app,app.eventCausingFinalSaving)
+b.返回return app.targetedFinalState;
+
+14.ATTEMPT_UNREGISTERED 卸载一个尝试任务
+状态从RUNNING/KILLING变成FINAL_SAVING状态
+new FinalSavingTransition(new AttemptUnregisteredTransition(),RMAppState.FINISHING, RMAppState.FINISHED))
+
+          
+1.FinalTransition 设置最终状态,是最后的一步骤
+a.for (NodeId nodeId : app.getRanNodes())
+ 循环该app运行的每一个节点,对每一个节点发送事件RMNodeEventType.CLEANUP_APP,使其去该节点清理该app的资源
+b.设置app的完成事件
+c.如果recoveredFinalState==null,则发送事件SchedulerEventType.APP_REMOVED,从调度器中移除该app的调度
+d.发送RMAppManagerEventType.APP_COMPLETED事件,通知APP的管理者,该app已经完成
+e.写入app的历史记录,将最终状态也写入日志中app.rmContext.getRMApplicationHistoryWriter().applicationFinished(app, finalState);
+f.app.rmContext.getSystemMetricsPublisher().appFinished(app, finalState, app.finishTime);
+
+2.AppRejectedTransition 拒绝该app
+a.调用FinalTransition构造函数,定义最终状态是RMAppState.FAILED
+b.设置message信息,app.diagnostics.append(rejectedEvent.getMessage());
+c.调用FinalTransition逻辑,完成一个app
+
+3.AppKilledTransition 杀死该app,彻底杀死,而不是杀死某一个尝试任务
+a.调用FinalTransition构造函数,定义最终状态是RMAppState.KILLED
+b.设置message信息,app.diagnostics.append(rejectedEvent.getMessage());
+c.调用FinalTransition逻辑,完成一个app
+
+4.AppFinishedTransition 完成一个app,而不是完成某一个尝试任务
+a.调用FinalTransition构造函数,定义最终状态是RMAppState.FINISHED
+b.设置message信息,app.diagnostics.append(rejectedEvent.getMessage());
+c.调用FinalTransition逻辑,完成一个app
+
+5.FinalSavingTransition 他是一个包装器,用于在具体执行逻辑前,相当于拦截器,可以做其他的一些事儿,比如做记录日志,方便日后还原系统,
+  因此该方法执行后,基本上状态都是FINAL_SAVING状态
+
+a.构造函数
+  private RMAppState stateBeforeFinalSaving;//保持变更前app的状态
+  private RMAppEvent eventCausingFinalSaving;//保存产生的事件
+  private RMAppState targetedFinalState;//最终的状态
+  Object transitionTodo;//后需要处理的任务
+  private long storedFinishTime = 0;//FinalSaving过程中的时间
+b.当遇见APP_REJECTED、ATTEMPT_FINISHED、ATTEMPT_FAILED、ATTEMPT_KILLED时候,获取message信息
+c.产生当时状态信息,记录到日志中
+ApplicationState appState =
+        new ApplicationState(this.submitTime, this.startTime,
+          this.submissionContext, this.user, stateBeforeFinalSaving, message,
+          this.storedFinishTime);
+d.发送事件RMStateStoreEventType.UPDATE_APP,去记录到日志中
+  this.rmContext.getStateStore().updateApplicationState(appState);
+
+e.记录完日志后,记录日志系统会调用RMAppEventType.APP_UPDATE_SAVED事件

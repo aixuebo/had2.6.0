@@ -150,7 +150,7 @@ c.如果该app没有完成,则app.ranNodes.add(nodeAddedEvent.getNodeId());
 a.app.queue = app.scheduler.moveApplication(app.applicationId,moveEvent.getTargetQueue());
   通过调度器,去做队列转换,并且将更改后的队列存储在app内部中
 b.如果更改过程中出现异常,则存储该异常信息
-   moveEvent.getResult().setException(ex);         
+   moveEvent.getResult().setException(ex);
 
 8.APP_REJECTED app被拒绝了
 状态从NEW/NEW_SAVING/SUBMITTED变成FINAL_SAVING状态

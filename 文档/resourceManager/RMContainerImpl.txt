@@ -1,0 +1,99 @@
+RMContainerImpl流程RMContainerEventType
+
+1.START 开启一个容器 
+状态从NEW/RESERVED变成ALLOCATED状态,表示容器已经准备好了
+a.发送RMAppAttemptEventType.CONTAINER_ALLOCATED事件,通知app的尝试任务,该容器已经准备好了
+
+2.ACQUIRED 表示队列已经分配了该容器
+状态从ALLOCATED变成ACQUIRED状态
+a.container.setResourceRequests(null); 暂时目的不明确
+b.container.containerAllocationExpirer.register(container.getContainerId()); 注册该容器是有心跳的
+c.发送事件RMAppEventType.APP_RUNNING_ON_NODE,通知app该容器在该node上被调度
+
+3.LAUNCHED 启动一个该容器
+状态从ACQUIRED变成RUNNING状态
+a.container.containerAllocationExpirer.unregister(container.getContainerId());容器已经运行了,则取消该监控
+
+4.FINISHED 表示一个容器完成了
+状态从RUNNING变成COMPLETED状态
+调用FinishedTransition方法
+
+5.FINISHED 表示一个容器完成了
+状态从ACQUIRED变成COMPLETED状态
+a.container.containerAllocationExpirer.unregister(container.getContainerId());
+b.调用FinishedTransition方法
+为什么要有a呢,是因为4方法,已经是RUNNING了,已经经历了a步骤了,而5方法还是ACQUIRED,因此要去执行a
+
+6.KILL 杀死一个容器
+状态从NEW/RESERVED变成KILLED状态
+什么操作都不用,因为容器还说明都没设置了,因此直接就是被杀死了
+
+7.KILL 杀死一个容器
+状态从ACQUIRED/RUNNING变成KILLED状态
+因为容器已经有了一部分准备工作了,所以要有一些操作
+a.container.containerAllocationExpirer.unregister(container.getContainerId());取消该容器的监控
+b.发送事件RMNodeEventType.CLEANUP_CONTAINER,通知该node去清理该容器吧,因为该容器已经完成了
+c.调用FinishedTransition方法
+
+8.KILL 杀死一个容器
+状态从ALLOCATED变成KILLED状态
+调用FinishedTransition方法
+
+
+9.EXPIRE 过期,该容器失去心跳了
+状态从ACQUIRED变成EXPIRED状态
+因为容器已经有了一部分准备工作了,所以要有一些操作
+a.container.containerAllocationExpirer.unregister(container.getContainerId());取消该容器的监控
+b.发送事件RMNodeEventType.CLEANUP_CONTAINER,通知该node去清理该容器吧,因为该容器已经完成了
+c.调用FinishedTransition方法
+
+10.EXPIRE 过期,该容器失去心跳了
+状态从ALLOCATED变成EXPIRED状态
+调用FinishedTransition方法
+   
+11.RELEASED 调度器触发的该事件,释放一个容器
+状态从ACQUIRED/RUNNING变成RELEASED状态
+因为容器已经有了一部分准备工作了,所以要有一些操作
+a.container.containerAllocationExpirer.unregister(container.getContainerId());取消该容器的监控
+b.发送事件RMNodeEventType.CLEANUP_CONTAINER,通知该node去清理该容器吧,因为该容器已经完成了
+c.调用FinishedTransition方法
+
+12.RELEASED 调度器触发的该事件,释放一个容器
+状态从RESERVED变成RELEASED状态
+什么也不用做
+
+13.RESERVED 预保留,表示在哪个node节点上预留了多少资源的容器
+状态从NEW/RESERVED变成RESERVED状态
+设置全局属性
+      container.reservedResource = e.getReservedResource();//预留了多少资源
+      container.reservedNode = e.getReservedNode();//在哪个node节点上预留的资源
+      container.reservedPriority = e.getReservedPriority();//预留资源的优先级
+
+公共方法
+1.FinishedTransition
+a.设置最后完成事件以及最后容器的状态
+      container.finishTime = System.currentTimeMillis();
+      container.finishedStatus = finishedEvent.getRemoteContainerStatus();
+b.设置一些统计信息
+c.发送RMAppAttemptEventType.CONTAINER_FINISHED事件,通知尝试任务,该一个容器在哪个node节点上运行完成
+d.container.rmContext.getRMApplicationHistoryWriter().containerFinished(container);//记录日志
+e.container.rmContext.getSystemMetricsPublisher().containerFinished(container, container.finishTime);
+
+2.ContainerReport createContainerReport() 报道该容器运行的信息
+    ContainerReport report = Records.newRecord(ContainerReport.class);
+    report.setContainerId(containerId);//容器ID
+    report.setAllocatedResource(allocatedResource);//容器内包含的资源,包括CPU和内存
+    report.setAssignedNode(assignedNode);//容器被分配到哪个Node上执行的
+    report.setPriority(priority);//容器的优先级
+    report.setCreationTime(creationTime);//容器创建时间
+    report.setFinishTime(finishTime);//容器完成事件
+    report.setDiagnosticsInfo(diagnosticInfo);//容器的message信息
+    report.setLogUrl(logUrl);//外界访问该容器的日志url
+    report.setContainerExitStatus(containerExitStatus);//容器的退出状态码
+    report.setContainerState(containerState);//容器最终完成的状态
+
+未完成的:
+恢复相关逻辑
+    .addTransition(RMContainerState.NEW,
+        EnumSet.of(RMContainerState.RUNNING, RMContainerState.COMPLETED),
+        RMContainerEventType.RECOVER, new ContainerRecoveredTransition())

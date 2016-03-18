@@ -40,7 +40,87 @@ d.设置当前尝试任务为本次创建的尝试任务currentAttempt = attempt;
 e.发送事件RMAppAttemptEventType.START,使尝试任务开始运行
 
 五、RMAppAttemptEventType.START 接收事件
+状态从NEW变成SUBMITTED状态,表示已经提交给队列了
+a.appAttempt.startTime = System.currentTimeMillis();设置尝试任务的开始时间
+b.appAttempt.masterService.registerAppAttempt(appAttempt.applicationAttemptId);向AM服务注册,即告诉AM服务,有了一个这样的尝试任务
+c.appAttempt.clientTokenMasterKey = appAttempt.rmContext.getClientToAMTokenSecretManager().createMasterKey创建token
+d.发送事件SchedulerEventType.APP_ATTEMPT_ADDED,表示创建一个app的尝试任务,提交到队列中来了
 
+六、调度器接收SchedulerEventType.APP_ATTEMPT_ADDED事件
+a.创建FiCaSchedulerApp schedulerApp = new FiCaSchedulerApp(appAttemptId, user, DEFAULT_QUEUE,activeUsersManager, this.rmContext)
+b.if (transferStateFromPreviousAttempt) schedulerApp.transferStateFromPreviousAttempt(application.getCurrentAppAttempt());
+c.application.setCurrentAppAttempt(schedulerApp);
+d.发送RMAppAttemptEventType.ATTEMPT_ADDED事件
+
+七、接收RMAppAttemptEventType.ATTEMPT_ADDED事件
+状态从SUBMITTED变成LAUNCHED_UNMANAGED_SAVING/SCHEDULED状态,表示队列已经接受了该尝试任务
+a.subCtx.getUnmanagedAM()是fasle表示AM由任意一个node去执行
+b.重新设置AM所需要的容器资源,即设置容器数量为1,容器优先级是AM的优先级、容器所需要的资源在什么节点上去运行,设置为*
+c.去队列中申请AM的资源,即为该尝试任务ID申请一个容器,所需要资源是amReq,释放容器是空集合,没有黑名单因此是null
+   Allocation amContainerAllocation =
+            appAttempt.scheduler.allocate(appAttempt.applicationAttemptId,Collections.singletonList(appAttempt.amReq),new ArrayList, null, null);
+d.返回SCHEDULED状态
+e.如果subCtx.getUnmanagedAM()是true,则返回LAUNCHED_UNMANAGED_SAVING,表示在job提交的节点上运行AM
+
+
+
+八、appAttempt.scheduler.allocate调用产生的容器会调用 RMContainerEventType.ACQUIRED事件
+
+
+
+-----------
+1.app提交生成一个RMAppImpl对象,保存到日志中
+2.向队列提交,使该调度器知道有这个app了,因此app的状态变成ACCEPTED状态,表示调度器已经知道了该app
+3.app创建一个RMAppAttemptImpl对象,并且启动尝试任务,尝试任务状态为SUBMITTED状态,表示尝试任务已经被调度器知道了
+4.尝试任务向masterService注册该尝试任务,即masterService知道了有一个尝试任务AM了,在masterService中有尝试任务ID的映射关系
+  然后向调度器发送SchedulerEventType.APP_ATTEMPT_ADDED,即告诉调度器我已经有了尝试任务了
+5.调度器产生尝试任务对象FiCaSchedulerApp,并且发送RMAppAttemptEventType.ATTEMPT_ADDED事件,通知尝试任务调度器已经添加完成该尝试任务
+6.尝试任务设置ResourceRequest amReq,即设置AM容器需要的请求,1个容器,优先级、在任意节点运行*
+  然后请求调度器Allocation amContainerAllocation = appAttempt.scheduler.allocate(appAttempt.applicationAttemptId, Collections.singletonList(appAttempt.amReq),EMPTY_CONTAINER_RELEASE_LIST, null, null);
+  然后确保返回值是无容器被返回的,因此状态返回SCHEDULED,表示尝试任务已经去调度器中申请资源去了
+7.调度器的Allocation allocate方法
+  a.针对等待释放的容器集合,去释放每一个容器.第一步是记录到释放容器集合中,被用于恢复数据的时候使用
+    然后根据容器在哪个节点运行的,则找到对应的节点对象FiCaSchedulerNode node = getNode(container.getNodeId());
+    然后发送释放容器事件FiCaSchedulerApp.containerCompleted(rmContainer, containerStatus, RMContainerEventType.RELEASED);
+       即该尝试任务对象中liveContainers、newlyAllocatedContainers、containersToPreempt都刨除该容器ID,
+       同时对容器发送RMContainerEventType.RELEASED事件
+       同时对currentConsumption减少一个容器的资源量
+    然后FiCaSchedulerNode.releaseContainer(container);
+       即该节点的容器数量-1,该节点的资源使用量减少一部分,可用资源增加一部分
+    Resources.subtractFrom(usedResource, container.getResource());减少调度器已经使用的资源量
+   b.循环所有的需要的ask资源请求
+     添加到以下属性中
+      final Map<Priority, Map<String, ResourceRequest>> requests = new HashMap<Priority, Map<String, ResourceRequest>>();
+   c.application.updateBlacklist(blacklistAdditions, blacklistRemovals); 处理黑名单
+   d.返回Allocation,包含已经分配给该app的容器集合,以及容器的token信息，还有此时集群的剩余资源信息
+     同时每一个容器要发送RMContainerEventType.ACQUIRED事件,表示容器已经返回给AM的response里面了
+8.一旦有容器被资源调度器调度了,就会产生RMContainerEventType.ACQUIRED事件
+
+后续会讲解MContainerEventType.ACQUIRED事件和RMContainerEventType.RELEASED事件
+
+
+
+调度器的逻辑
+1.NODE_ADDED事件 一个Node节点添加了
+添加该节点的映射this.nodes.put(nodeManager.getNodeID(), new FiCaSchedulerNode(nodeManager,usePortForNodeName));
+添加总资源Resources.addTo(clusterResource, nodeManager.getTotalCapability());
+recoverContainersOnNode(nodeAddedEvent.getContainerReports(),nodeAddedEvent.getAddedRMNode());
+
+2.NODE_REMOVED事件  一个Node节点被移除
+停止该节点上所有的容器,每一个容器发送RMContainerEventType.KILL事件
+移除该节点映射 this.nodes.remove(nodeInfo.getNodeID());
+对总资源减少一部分资源 Resources.subtractFrom(clusterResource, node.getRMNode().getTotalCapability());
+
+3.NODE_RESOURCE_UPDATE 更新节点的总资源
+为node设置最新总资源node.setTotalResource(newResource);
+设置集群总资源
+Resources.subtractFrom(clusterResource, oldResource);
+Resources.addTo(clusterResource, newResource);
+
+4.NODE_UPDATE node心跳
+
+
+nodeUpdate
 
 
 

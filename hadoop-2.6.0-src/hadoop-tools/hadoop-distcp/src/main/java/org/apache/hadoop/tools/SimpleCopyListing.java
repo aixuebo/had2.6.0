@@ -69,13 +69,15 @@ public class SimpleCopyListing extends CopyListing {
 
     Path targetPath = options.getTargetPath();
     FileSystem targetFS = targetPath.getFileSystem(getConf());
-    boolean targetIsFile = targetFS.isFile(targetPath);
+    boolean targetIsFile = targetFS.isFile(targetPath);//true表示目标是一个文件
     targetPath = targetFS.makeQualified(targetPath);
+    
+    //获取没有scheme和校验信息的url,判断是否以/.reserved/raw开头
     final boolean targetIsReservedRaw =
         Path.getPathWithoutSchemeAndAuthority(targetPath).toString().
             startsWith(HDFS_RESERVED_RAW_DIRECTORY_NAME);
 
-    //If target is a file, then source has to be single file
+    //If target is a file, then source has to be single file 如果目标是文件,则输入源一定也是一个文件
     if (targetIsFile) {
       if (options.getSourcePaths().size() > 1) {
         throw new InvalidInputException("Multiple source being copied to a file: " +
@@ -84,7 +86,7 @@ public class SimpleCopyListing extends CopyListing {
 
       Path srcPath = options.getSourcePaths().get(0);
       FileSystem sourceFS = srcPath.getFileSystem(getConf());
-      if (!sourceFS.isFile(srcPath)) {
+      if (!sourceFS.isFile(srcPath)) {//输入源必须是文件
         throw new InvalidInputException("Cannot copy " + srcPath +
             ", which is not a file to " + targetPath);
       }
@@ -97,9 +99,10 @@ public class SimpleCopyListing extends CopyListing {
 
     for (Path path: options.getSourcePaths()) {
       FileSystem fs = path.getFileSystem(getConf());
-      if (!fs.exists(path)) {
+      if (!fs.exists(path)) {//文件必须存在
         throw new InvalidInputException(path + " doesn't exist");
       }
+      
       if (Path.getPathWithoutSchemeAndAuthority(path).toString().
           startsWith(HDFS_RESERVED_RAW_DIRECTORY_NAME)) {
         if (!targetIsReservedRaw) {

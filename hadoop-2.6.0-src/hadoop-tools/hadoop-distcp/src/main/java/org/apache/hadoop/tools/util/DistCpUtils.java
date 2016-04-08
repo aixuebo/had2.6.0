@@ -167,12 +167,13 @@ public class DistCpUtils {
    * each preservation attribute back to a set of attributes to preserve
    * @param attributes - Attribute string
    * @return - Attribute set
+   * 参数是状态的开头字母,表示要设置保存这些状态
    */
   public static EnumSet<FileAttribute> unpackAttributes(String attributes) {
     EnumSet<FileAttribute> retValue = EnumSet.noneOf(FileAttribute.class);
 
     if (attributes != null) {
-      for (int index = 0; index < attributes.length(); index++) {
+      for (int index = 0; index < attributes.length(); index++) {//循环每一个开头字母,找到对应的状态
         retValue.add(FileAttribute.getAttribute(attributes.charAt(index)));
       }
     }

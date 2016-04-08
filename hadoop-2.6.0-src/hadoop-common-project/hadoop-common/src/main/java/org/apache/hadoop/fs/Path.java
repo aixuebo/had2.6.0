@@ -250,6 +250,7 @@ public class Path implements Comparable {
     }
     
     // trim trailing slash from non-root path (ignoring windows drive)
+    //去除path路径最后面的/,eg:/AA/BB/CC/ 转换后是/AA/BB/CC
     int minLength = startPositionWithoutWindowsDrive(path) + 1;
     if (path.length() > minLength && path.endsWith(SEPARATOR)) {
       path = path.substring(0, path.length()-1);
@@ -262,6 +263,7 @@ public class Path implements Comparable {
     return (WINDOWS && hasDriveLetterSpecifier.matcher(path).find());
   }
 
+  //linux返回0
   private static int startPositionWithoutWindowsDrive(String path) {
     if (hasWindowsDrive(path)) {
       return path.charAt(0) ==  SEPARATOR_CHAR ? 3 : 2;

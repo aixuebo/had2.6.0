@@ -40,20 +40,20 @@ public class DistCpConstants {
   public static final String CONF_LABEL_ATOMIC_COPY = "distcp.atomic.copy";
   public static final String CONF_LABEL_WORK_PATH = "distcp.work.path";
   public static final String CONF_LABEL_LOG_PATH = "distcp.log.path";
-  public static final String CONF_LABEL_IGNORE_FAILURES = "distcp.ignore.failures";
-  public static final String CONF_LABEL_PRESERVE_STATUS = "distcp.preserve.status";
+  public static final String CONF_LABEL_IGNORE_FAILURES = "distcp.ignore.failures";//忽略copy过程中出现的异常信息
+  public static final String CONF_LABEL_PRESERVE_STATUS = "distcp.preserve.status";//copy后是否保持文件的状态信息
   public static final String CONF_LABEL_PRESERVE_RAWXATTRS =
       "distcp.preserve.rawxattrs";
   public static final String CONF_LABEL_SYNC_FOLDERS = "distcp.sync.folders";
   public static final String CONF_LABEL_DELETE_MISSING = "distcp.delete.missing.source";
   public static final String CONF_LABEL_SSL_CONF = "distcp.keystore.resource";
   public static final String CONF_LABEL_MAX_MAPS = "distcp.max.maps";
-  public static final String CONF_LABEL_SOURCE_LISTING = "distcp.source.listing";
+  public static final String CONF_LABEL_SOURCE_LISTING = "distcp.source.listing";//需要被copy的文件集合
   public static final String CONF_LABEL_COPY_STRATEGY = "distcp.copy.strategy";
   public static final String CONF_LABEL_SKIP_CRC = "distcp.skip.crc";
   public static final String CONF_LABEL_OVERWRITE = "distcp.copy.overwrite";
   public static final String CONF_LABEL_APPEND = "distcp.copy.append";
-  public static final String CONF_LABEL_BANDWIDTH_MB = "distcp.map.bandwidth.mb";
+  public static final String CONF_LABEL_BANDWIDTH_MB = "distcp.map.bandwidth.mb";//每一个map的带宽
   
   public static final String CONF_LABEL_MAX_CHUNKS_TOLERABLE =
       "distcp.dynamic.max.chunks.tolerable";

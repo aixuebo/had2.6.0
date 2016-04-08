@@ -34,6 +34,7 @@ public class OptionsParser {
 
   private static final Log LOG = LogFactory.getLog(OptionsParser.class);
 
+  //加载可能需要到的所有linux命令
   private static final Options cliOptions = new Options();
 
   static {
@@ -86,10 +87,10 @@ public class OptionsParser {
       throw new IllegalArgumentException("Target path not specified");
     }
 
-    //Last Argument is the target path
+    //Last Argument is the target path 最后一个是目标路径
     targetPath = new Path(leftOverArgs[leftOverArgs.length -1].trim());
 
-    //Copy any source paths in the arguments to the list
+    //Copy any source paths in the arguments to the list 前面的都是输入源路径
     for (int index = 0; index < leftOverArgs.length - 1; index++) {
       sourcePaths.add(new Path(leftOverArgs[index].trim()));
     }
@@ -97,7 +98,7 @@ public class OptionsParser {
     /* If command has source file listing, use it else, fall back on source paths in args
        If both are present, throw exception and bail */
     if (command.hasOption(DistCpOptionSwitch.SOURCE_FILE_LISTING.getSwitch())) {
-      if (!sourcePaths.isEmpty()) {
+      if (!sourcePaths.isEmpty()) {//不允许两者都存在
         throw new IllegalArgumentException("Both source file listing and source paths present");
       }
       option = new DistCpOptions(new Path(getVal(command, DistCpOptionSwitch.
@@ -238,6 +239,7 @@ public class OptionsParser {
     return option;
   }
 
+  //获取swtch作为key的value值
   private static String getVal(CommandLine command, String swtch) {
     String optionValue = command.getOptionValue(swtch);
     if (optionValue == null) {

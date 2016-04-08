@@ -59,18 +59,18 @@ public class CopyMapper extends Mapper<Text, CopyListingFileStatus, Text, Text> 
     SKIP,         // Number of files skipped.
     FAIL,         // Number of files that failed to be copied.
     BYTESCOPIED,  // Number of bytes actually copied by the copy-mapper, total.
-    BYTESEXPECTED,// Number of bytes expected to be copied.
     BYTESFAILED,  // Number of bytes that failed to be copied.
     BYTESSKIPPED, // Number of bytes that were skipped from copy.
+    BYTESEXPECTED,// Number of bytes expected to be copied.
   }
 
   /**
    * Indicate the action for each file
    */
   static enum FileAction {
-    SKIP,         // Skip copying the file since it's already in the target FS
+    SKIP,         // Skip copying the file since it's already in the target FS 跳过该文件
     APPEND,       // Only need to append new data to the file in the target FS 
-    OVERWRITE,    // Overwrite the whole file
+    OVERWRITE,    // Overwrite the whole file 覆盖整个文件
   }
 
   private static Log LOG = LogFactory.getLog(CopyMapper.class);
@@ -82,6 +82,8 @@ public class CopyMapper extends Mapper<Text, CopyListingFileStatus, Text, Text> 
   private boolean skipCrc = false;
   private boolean overWrite = false;
   private boolean append = false;
+  
+  //保存哪些状态
   private EnumSet<FileAttribute> preserve = EnumSet.noneOf(FileAttribute.class);
 
   private FileSystem targetFS = null;

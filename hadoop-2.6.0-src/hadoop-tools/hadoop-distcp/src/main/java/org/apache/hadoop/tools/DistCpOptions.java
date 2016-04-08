@@ -34,10 +34,10 @@ import java.util.NoSuchElementException;
  */
 public class DistCpOptions {
 
-  private boolean atomicCommit = false;
+  private boolean atomicCommit = false;//DistCpOptionSwitch.ATOMIC_COMMIT
   private boolean syncFolder = false;
   private boolean deleteMissing = false;
-  private boolean ignoreFailures = false;
+  private boolean ignoreFailures = false;//DistCpConstants.CONF_LABEL_IGNORE_FAILURES
   private boolean overwrite = false;
   private boolean append = false;
   private boolean skipCRC = false;
@@ -56,10 +56,10 @@ public class DistCpOptions {
 
   private Path atomicWorkPath;
 
-  private Path logPath;
+  private Path logPath;//DistCpOptionSwitch.LOG_PATH
 
-  private Path sourceFileListing;
-  private List<Path> sourcePaths;
+  private Path sourceFileListing;//需要被copy的文件集合
+  private List<Path> sourcePaths;//需要被copy的文件集合
 
   private Path targetPath;
 
@@ -67,9 +67,11 @@ public class DistCpOptions {
   // beginning of distcp.
   private boolean targetPathExists = true;
   
+  //文件属性信息
   public static enum FileAttribute{
     REPLICATION, BLOCKSIZE, USER, GROUP, PERMISSION, CHECKSUMTYPE, ACL, XATTR, TIMES;
 
+    //只要第一个字母匹配就可以查找到文件属性了
     public static FileAttribute getAttribute(char symbol) {
       for (FileAttribute attribute : values()) {
         if (attribute.name().charAt(0) == Character.toUpperCase(symbol)) {

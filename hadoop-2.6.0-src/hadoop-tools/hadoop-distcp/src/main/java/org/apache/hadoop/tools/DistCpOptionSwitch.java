@@ -24,22 +24,27 @@ import org.apache.hadoop.conf.Configuration;
 /**
  * Enumeration mapping configuration keys to distcp command line
  * options.
+ * 设置一些conf的配置信息,用于copy信息的配置信息
  */
 public enum DistCpOptionSwitch {
 
   /**
    * Ignores any failures during copy, and continues with rest.
    * Logs failures in a file
+   * 忽略copy过程中出现的异常信息
    */
   IGNORE_FAILURES(DistCpConstants.CONF_LABEL_IGNORE_FAILURES,
       new Option("i", false, "Ignore failures during copy")),
 
   /**
+   * boolean类型的值,即表示在目标文件或者路径中是否保存原有的状态
    * Preserves status of file/path in the target.
    * Default behavior with -p, is to preserve replication,
    * block size, user, group, permission, checksum type and timestamps on the 
    * target file. Note that when preserving checksum type, block size is also 
    * preserved.
+   * 表示保持原有状态包含replication,block size, user, group, permission, checksum type and timestamps
+   * 参数是待保存的状态的开头字母
    *
    * @see PRESERVE_STATUS_DEFAULT
    *
@@ -97,6 +102,7 @@ public enum DistCpOptionSwitch {
    * Source file listing can be provided to DistCp in a file.
    * This allows DistCp to copy random list of files from source
    * and copy them to target
+   * 需要被copy的文件集合
    */
   SOURCE_FILE_LISTING(DistCpConstants.CONF_LABEL_SOURCE_LISTING,
       new Option("f", true, "List of files that need to be copied")),
@@ -165,10 +171,12 @@ public enum DistCpOptionSwitch {
 
   /**
    * Specify bandwidth per map in MB
+   * 每一个map带宽
    */
   BANDWIDTH(DistCpConstants.CONF_LABEL_BANDWIDTH_MB,
       new Option("bandwidth", true, "Specify bandwidth per map in MB"));
 
+  //代表REPLICATION, BLOCKSIZE, USER, GROUP, PERMISSION, CHECKSUMTYPE, ACL, XATTR, TIMES的第一个字母,表示要保存这些状态
   public static final String PRESERVE_STATUS_DEFAULT = "-prbugpct";
   private final String confLabel;
   private final Option option;
@@ -214,6 +222,7 @@ public enum DistCpOptionSwitch {
    * @param conf - Configuration object to include the option
    * @param option - Option to add
    * @param value - Value
+   * 向conf中添加key=value信息,key就是DistCpOptionSwitch对应的key
    */
   public static void addToConf(Configuration conf,
                                DistCpOptionSwitch option,
@@ -225,6 +234,8 @@ public enum DistCpOptionSwitch {
    * Helper function to set an option to hadoop configuration object
    * @param conf - Configuration object to include the option
    * @param option - Option to add
+   * 向conf中添加key=boolean信息,key就是DistCpOptionSwitch对应的key
+   * 该值是boolean类型的
    */
   public static void addToConf(Configuration conf,
                                DistCpOptionSwitch option) {

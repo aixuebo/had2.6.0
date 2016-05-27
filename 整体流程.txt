@@ -32,11 +32,11 @@ boolean success = job.waitForCompletion(true);
 2.submitClient是链接集群yarn的对象
 
 org.apache.hadoop.util.GenericOptionsParser
--libjars /data11/coohua/app/statistic_hadoop/1.7/commons-digester-1.8.jar,/data11/coohua/app/statistic_hadoop/1.7/commons-discovery-0.2.jar
+-libjars /data11/maming/app/statistic_hadoop/1.7/commons-digester-1.8.jar,/data11/maming/app/statistic_hadoop/1.7/commons-discovery-0.2.jar
 将参数转换成其他名称,存储到conf中
 
 yarn.app.mapreduce.am.staging-dir  /tmp/hadoop-yarn/
-问题:jar包什么时候上传到yarn上的hadoop fs -ls /tmp/hadoop-yarn/staging/coohua/.staging/job_1446071754254_78428
+问题:jar包什么时候上传到yarn上的hadoop fs -ls /tmp/hadoop-yarn/staging/maming/.staging/job_1446071754254_78428
 
 如果path配置/xx/xx1的时候,使用的是默认操作系统
 <property>

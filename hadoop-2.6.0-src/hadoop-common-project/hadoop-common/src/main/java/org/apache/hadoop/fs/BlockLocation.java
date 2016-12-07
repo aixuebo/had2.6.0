@@ -26,7 +26,7 @@ import org.apache.hadoop.classification.InterfaceStability;
  * Represents the network location of a block, information about the hosts
  * that contain block replicas, and other block metadata (E.g. the file
  * offset associated with the block, length, whether it is corrupt, etc).
- * 数据块所在位置
+ * 代表一个数据块,即数据块的所在位置等信息
  */
 @InterfaceAudience.Public
 @InterfaceStability.Stable

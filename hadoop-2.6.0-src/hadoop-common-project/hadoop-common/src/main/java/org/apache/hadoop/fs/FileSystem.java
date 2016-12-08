@@ -1658,6 +1658,8 @@ public abstract class FileSystem extends Configured implements Closeable {
    *
    * @throws FileNotFoundException If <code>f</code> does not exist
    * @throws IOException If an I/O error occurred
+   * 加载一个目录
+   * 如果目录的子目录优势目录,则返回null,如果是文件,则创建该文件的属性与数据块集合的对象LocatedFileStatus
    */
   public RemoteIterator<LocatedFileStatus> listLocatedStatus(final Path f)
   throws FileNotFoundException, IOException {
@@ -1668,8 +1670,10 @@ public abstract class FileSystem extends Configured implements Closeable {
    * Listing a directory
    * The returned results include its block location if it is a file
    * The results are filtered by the given path filter
-   * @param f a path
-   * @param filter a path filter
+   * 加载一个目录
+   * 如果目录的子目录优势目录,则返回null,如果是文件,则创建该文件的属性与数据块集合的对象LocatedFileStatus
+   * @param f a path 目录
+   * @param filter a path filter 过滤器
    * @return an iterator that traverses statuses of the files/directories 
    *         in the given path
    * @throws FileNotFoundException if <code>f</code> does not exist
@@ -1679,7 +1683,7 @@ public abstract class FileSystem extends Configured implements Closeable {
       final PathFilter filter)
   throws FileNotFoundException, IOException {
     return new RemoteIterator<LocatedFileStatus>() {
-      private final FileStatus[] stats = listStatus(f, filter);
+      private final FileStatus[] stats = listStatus(f, filter);//该f目录下子结果
       private int i = 0;
 
       @Override
@@ -1692,10 +1696,12 @@ public abstract class FileSystem extends Configured implements Closeable {
         if (!hasNext()) {
           throw new NoSuchElementException("No more entry in " + f);
         }
-        FileStatus result = stats[i++];
+        FileStatus result = stats[i++];//对应的子文件
+        //子文件是文件的话,则返回所有的数据块集合
         BlockLocation[] locs = result.isFile() ?
             getFileBlockLocations(result.getPath(), 0, result.getLen()) :
             null;
+
         return new LocatedFileStatus(result, locs);
       }
     };

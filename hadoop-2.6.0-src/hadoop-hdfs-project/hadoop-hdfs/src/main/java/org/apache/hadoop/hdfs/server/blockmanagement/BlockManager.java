@@ -1532,6 +1532,7 @@ public class BlockManager {
    *           if the number of targets < minimum replication.
    * @see BlockPlacementPolicy#chooseTarget(String, int, Node,
    *      Set, long, List, BlockStoragePolicy)
+   * 使用策略为新的数据块选择合适的节点存放
    */
   public DatanodeStorageInfo[] chooseTarget4NewBlock(final String src,
       final int numOfReplicas, final Node client,

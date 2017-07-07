@@ -186,35 +186,39 @@ public class LineReader implements Closeable {
    * Read a line terminated by one of CR, LF, or CRLF.
    * 遇到CR, LF之一 或者CRCLF则推出
    * Text str 最终值要追加到str中
-   * int maxLineLength 每行处理的最多字节,如果每行字节数超过了该值,则从该值--CRLF之间的内容忽略删除
-   * int maxBytesToConsume到该字节位置,不再读取数据
+   * int maxLineLength 每行处理的最多字节,如果每行字节数超过了该值,则从该值--CRLF之间的内容忽略删除,即截断一部分字符串,返回截断后的数据给value
+   * int maxBytesToConsume 到该字节位置,不再读取数据,一般是end-start
    * 返回被处理的字节数
    */
   private int readDefaultLine(Text str, int maxLineLength, int maxBytesToConsume)
   throws IOException {
     /* We're reading data from in, but the head of the stream may be
      * already buffered in buffer, so we have several cases:
+     * 我们从输入流中读取数据,到缓冲池中,可能输入流的一部分数据已经在缓冲池里面了,因此有以下case用例
      * 1. No newline characters are in the buffer, so we need to copy
      *    everything and read another buffer from the stream.
+     *    缓冲中没有新的字符串时候,要先读取数据到缓冲池中
      * 2. An unambiguously terminated line is in buffer, so we just
      *    copy to str.
+     *    没有发现行终止符号的时候,将全部缓冲内容添加到str中,然后继续读取1,让数据进入缓冲层
      * 3. Ambiguously terminated line is in buffer, i.e. buffer ends
      *    in CR.  In this case we copy everything up to CR to str, but
      *    we also need to see what follows CR: if it's LF, then we
      *    need consume LF as well, so next call to readLine will read
      *    from after that.
+     *    发现行终止符号后,数据解析结束
      * We use a flag prevCharCR to signal if previous character was CR
      * and, if it happens to be at the end of the buffer, delay
      * consuming it until we have a chance to look at the char that
      * follows.
      */
     str.clear();//清空原始数据
-    int txtLength = 0; //tracks str.getLength(), as an optimization
+    int txtLength = 0; //tracks str.getLength(), as an optimization value已经读取了多少长度字节
     int newlineLength = 0; //length of terminating newline
     boolean prevCharCR = false; //true of prev char was CR
     long bytesConsumed = 0;//被处理的字节数
     do {
-      int startPosn = bufferPosn; //starting from where we left off the last time
+      int startPosn = bufferPosn; //starting from where we left off the last time 上一次读取后,在缓冲池中哪位置了
       if (bufferPosn >= bufferLength) {//已经处理的位置 大于 了字节数组的位置,因此重新加载数据
         startPosn = bufferPosn = 0;
         if (prevCharCR) {
@@ -225,7 +229,7 @@ public class LineReader implements Closeable {
           break; // EOF
         }
       }
-      for (; bufferPosn < bufferLength; ++bufferPosn) { //search for newline
+      for (; bufferPosn < bufferLength; ++bufferPosn) { //search for newline 找到缓冲区中换行字符为止
         if (buffer[bufferPosn] == LF) {
           newlineLength = (prevCharCR) ? 2 : 1;//查看如果有cr了,因此是2个字节
           ++bufferPosn; // at next invocation proceed from following byte
@@ -237,20 +241,21 @@ public class LineReader implements Closeable {
         }
         prevCharCR = (buffer[bufferPosn] == CR);
       }
-      int readLength = bufferPosn - startPosn;
+      int readLength = bufferPosn - startPosn;//本次读取的总长度
       if (prevCharCR && newlineLength == 0) {
-        --readLength; //CR at the end of the buffer
+        --readLength; //CR at the end of the buffer 刨出最后一个分割换行字符
       }
-      bytesConsumed += readLength;
-      int appendLength = readLength - newlineLength;
-      if (appendLength > maxLineLength - txtLength) {
+
+      bytesConsumed += readLength;//本次在缓冲池中查找换行符为止已经读取了多少字节
+      int appendLength = readLength - newlineLength;//本次追加的字符
+      if (appendLength > maxLineLength - txtLength) {//截断数据,因为已经到到了maxLineLength的字节上限位置了
         appendLength = maxLineLength - txtLength;
       }
-      if (appendLength > 0) {//小于0的,说明数据超过了最大行,因此被忽略
-        str.append(buffer, startPosn, appendLength);
+      if (appendLength > 0) {//小于0的,说明数据超过了最大行,因此被忽略,即截断后的数据不会再次被抓取回来
+        str.append(buffer, startPosn, appendLength);//将内容追加到结果中,因为可能尚未发现换行符号,因此继续读取数据
         txtLength += appendLength;
       }
-    } while (newlineLength == 0 && bytesConsumed < maxBytesToConsume);
+    } while (newlineLength == 0 && bytesConsumed < maxBytesToConsume);//只要没看到换行字符,并且还可以继续读取数据,则就不断读取数据
 
     if (bytesConsumed > Integer.MAX_VALUE) {
       throw new IOException("Too many bytes before newline: " + bytesConsumed);

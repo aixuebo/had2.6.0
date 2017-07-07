@@ -28,19 +28,20 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 
 /** Interface that represents the client side information for a file.
+ * 代表一个文件对象
  */
 @InterfaceAudience.Public
 @InterfaceStability.Stable
 public class FileStatus implements Writable, Comparable {
 
-  private Path path;
-  private long length;
-  private boolean isdir;
-  private short block_replication;
-  private long blocksize;
-  private long modification_time;
+  private Path path;//文件路径
+  private long length;//文件大小
+  private boolean isdir;//是否是目录
+  private short block_replication;//文件备份数
+  private long blocksize;//该文件每一个数据块大小
+  private long modification_time;//最后修改时间
   private long access_time;
-  private FsPermission permission;
+  private FsPermission permission;//该文件权限
   private String owner;
   private String group;
   private Path symlink;

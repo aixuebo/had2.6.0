@@ -26,11 +26,12 @@ import org.apache.hadoop.fs.permission.FsPermission;
 
 /**
  * This class defines a FileStatus that includes a file's block locations.
+ * 这个对象代表一个文件,以及该文件包含的所有数据快集合
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
 public class LocatedFileStatus extends FileStatus {
-  private BlockLocation[] locations;
+  private BlockLocation[] locations;//数据块集合,比如该文件包含10个数据块,那么这就是10个元素
 
   /**
    * Constructor 
